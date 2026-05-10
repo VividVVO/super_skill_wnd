@@ -1987,6 +1987,11 @@ namespace
         return g_mountedRuntimeDefinitionResolveDepth > 1;
     }
 
+    bool IsMountedRuntimeDefinitionResolveCurrentlyActive()
+    {
+        return IsMountedRuntimeDefinitionResolveActive();
+    }
+
     int GetMountedRuntimeDefinitionLearnedLevel(int skillId)
     {
         if (skillId <= 0)
@@ -2027,6 +2032,8 @@ namespace
             return false;
 
         ScopedMountedRuntimeDefinitionResolveGuard resolveGuard;
+        const bool bypassCurrentJobForMountedDemonJump =
+            kind == MountedRuntimeSkillKind_DemonJump;
 
         int preferredSkillId = 0;
         if (TryGetPreferredMountedMovementOverrideSkillId(mountItemId, preferredSkillId) &&
@@ -2036,7 +2043,8 @@ namespace
             if (FindSuperSkillDefinition(preferredSkillId, preferredDefinition) &&
                 preferredDefinition.mountItemId == mountItemId &&
                 ResolveMountedRuntimeSkillIdFromDefinition(preferredDefinition, kind) > 0 &&
-                DoesSuperSkillMatchCurrentJob(preferredDefinition))
+                (bypassCurrentJobForMountedDemonJump ||
+                 DoesSuperSkillMatchCurrentJob(preferredDefinition)))
             {
                 outDefinition = preferredDefinition;
                 return true;
@@ -2055,7 +2063,8 @@ namespace
             {
                 continue;
             }
-            if (!DoesSuperSkillMatchCurrentJob(definition))
+            if (!bypassCurrentJobForMountedDemonJump &&
+                !DoesSuperSkillMatchCurrentJob(definition))
                 continue;
             if (GetMountedRuntimeDefinitionLearnedLevel(definition.skillId) > 0)
             {
@@ -11189,13 +11198,22 @@ int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
     {
         static DWORD s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick = 0;
         const DWORD nowTick = GetTickCount();
-        if (nowTick - s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick > 1000)
+        if (nowTick - s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick > 250)
         {
             s_lastMountedRuntimeDefinitionLevelLookupGuardLogTick = nowTick;
+            int recentDemonArmMountItemId = 0;
+            const bool hasRecentDemonArm =
+                SkillOverlayBridgeTryGetRecentMountedDemonJumpRouteArmMountItemId(
+                    &recentDemonArmMountItemId,
+                    500);
             WriteLogFmt(
-                "[MountRuntimeResolve] level lookup guard keep query=%d depth=%d",
+                "[MountRuntimeResolve] level lookup guard keep query=%d depth=%d caller=0x%08X demonArmMount=%d activeNativeCustom=%d activeNativeProxy=%d",
                 skillId,
-                g_mountedRuntimeDefinitionResolveDepth);
+                g_mountedRuntimeDefinitionResolveDepth,
+                (DWORD)(uintptr_t)_ReturnAddress(),
+                hasRecentDemonArm ? recentDemonArmMountItemId : 0,
+                g_activeNativeRelease.customSkillId,
+                g_activeNativeRelease.classifierProxySkillId);
         }
         return skillId;
     }
@@ -11259,6 +11277,11 @@ int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
     }
 
     return skillId;
+}
+
+bool SkillOverlayBridgeIsMountedRuntimeDefinitionResolveActive()
+{
+    return IsMountedRuntimeDefinitionResolveCurrentlyActive();
 }
 
 void SkillOverlayBridgeObserveLevelQueryContext(void* skillDataMgr, DWORD playerObj)

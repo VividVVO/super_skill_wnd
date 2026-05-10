@@ -2008,11 +2008,6 @@ typedef void *(__thiscall *tMountedDemonJumpLateLookupFn)(
     int a2,
     int a3,
     int a4);
-typedef unsigned int *(__thiscall *tMountedDemonJumpNativeActionResetFn)(
-    char *thisPtr,
-    int a2);
-typedef int(__thiscall *tMountedDemonJumpCarrierResetFn)(
-    int *thisPtr);
 static tMountedDemonJumpLateRouteFn oMountedDemonJumpLateRoute575D60 = nullptr;
 static tMountedDemonJumpLateTickFn oMountedDemonJumpLateTick576020 = nullptr;
 static tMountedDemonJumpContextInputFn oMountedDemonJumpContextInputB22630 = nullptr;
@@ -2035,8 +2030,6 @@ static const DWORD ADDR_MountedDemonJumpMoveB1C9E0 = 0x00B1C9E0;
 static const DWORD ADDR_MountedDemonJumpPrimeAE8F70 = 0x00AE8F70;
 static const DWORD ADDR_MountedDemonJumpUpActionAFB710 = 0x00AFB710;
 static const DWORD ADDR_MountedDemonJumpAfbState42E170 = 0x0042E170;
-static const DWORD ADDR_MountedDemonJumpNativeActionReset47F1C0 = 0x0047F1C0;
-static const DWORD ADDR_MountedDemonJumpCarrierResetB22AE0 = 0x00B22AE0;
 static const DWORD ADDR_MountedDemonJumpAfbGateADB240 = 0x00ADB240;
 static const DWORD ADDR_MountedDemonJumpAfbGateAD9500 = 0x00AD9500;
 static const DWORD ADDR_MountedDemonJumpAfbLookup773500 = 0x00773500;
@@ -2252,10 +2245,19 @@ enum MountedRuntimeSkillKind
 static bool HasRecentMountedDoubleJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
 static bool HasRecentMountedDemonJumpIntent(int mountItemId, DWORD maxAgeMs = 400);
 static bool IsMountedDemonJumpRelatedSkillId(int skillId);
-static void ObserveMountedDemonJumpIntent(
+static void ObserveMountedDemonJumpIntent(int mountItemId);
+static void ObserveMountedDemonJumpForcedUpConfirm(int mountItemId);
+static bool HasRecentMountedDemonJumpForcedUpConfirm(
     int mountItemId,
-    const char *reasonTag = nullptr);
+    DWORD maxAgeMs = 0);
 static void RememberMountedDemonJumpGlidePacket(int mountItemId);
+static bool TryClearMountedDemonJumpResidualLandingState(
+    void *thisPtr,
+    int mountItemId,
+    int rootSkillId,
+    int currentSkillId,
+    const char *reasonTag,
+    DWORD callerRet);
 static bool ShouldSuppressMountedDemonJumpRepeatedGlidePacket(
     int mountItemId,
     DWORD maxAgeMs,
@@ -2265,6 +2267,11 @@ static bool IsMountedDemonJumpCrashTraceFresh(
     int *runtimeSkillIdOut = nullptr,
     int *mountItemIdOut = nullptr,
     DWORD maxAgeMs = 2500);
+static bool IsMountedDemonJumpRuntimeProxySkillId(int skillId);
+static bool TryResolveMountedDemonJumpProxyFallbackChildSkill(
+    int proxySkillId,
+    int *childSkillIdOut,
+    const char **sourceOut = nullptr);
 static bool IsExtendedMountSoaringContextMount(int mountItemId);
 static bool TryGetMountedSoaringFlightTiming(
     int mountItemId,
@@ -2276,11 +2283,6 @@ static const bool kEnableGlobalMovementSetterProtectionHooks = false;
 static const DWORD kMountedDemonJumpIntentMaxAgeMs = 400;
 static const DWORD kMountedDemonJumpContextClearProtectMs = 300;
 static const DWORD kMountedDemonJumpLateChildPrimeWindowMs = 180;
-static const DWORD kMountedDemonJumpLateChildCacheMatchMaxAgeMs = 250;
-static const DWORD kMountedDemonJumpTerminalClearSuppressMs = 1500;
-static const DWORD kMountedDemonJumpPacketGuardReleaseAgeMs = 2000;
-static const DWORD kMountedDemonJumpGlidePacketSustainMaxAgeMs = 600;
-static const DWORD kMountedDemonJumpRepeatedGlidePacketSuppressMaxAgeMs = 80;
 // Despite the historical name, this now covers both the mounted data loader
 // cap in 888DF0 and the later shared speed/jump clamp chain.
 static const bool kEnableMountMovementCapPatches = true;
@@ -2299,21 +2301,6 @@ static bool HasMountedDemonJumpContextPrimedForMount(
     int mountItemId,
     int *currentSkillIdOut = nullptr,
     int *rootSkillIdOut = nullptr);
-static void ObserveMountedDemonJumpTerminalClear(
-    int mountItemId,
-    const char *reasonTag);
-static void ClearMountedDemonJumpTerminalClear(
-    int mountItemId,
-    const char *reasonTag);
-static bool ShouldReleaseMountedDemonJumpTerminalClearForReason(
-    const char *reasonTag);
-static bool HasRecentMountedDemonJumpTerminalClear(
-    int mountItemId,
-    DWORD maxAgeMs);
-static bool TryReadMountedDemonJumpEffectiveContextState(
-    int mountItemId,
-    int *rootSkillIdOut,
-    int *currentSkillIdOut);
 static bool TryReadCurrentUserMountItemId(int *mountItemIdOut);
 static bool IsMountedDemonJumpRuntimeChildSkillId(int skillId);
 static bool TryReadMountedDemonJumpPrimePlayerObject(void **playerObjOut);
@@ -2322,21 +2309,6 @@ static bool TryClearMountedDemonJumpLateLocalLockState(
     int mountItemId,
     int rootSkillId,
     int currentSkillId,
-    const char *reasonTag,
-    DWORD callerRet);
-static bool TryClearMountedDemonJumpTailLocalGateState(
-    void *thisPtr,
-    int mountItemId,
-    const char *reasonTag,
-    DWORD callerRet);
-static bool TryForceFinalizeMountedDemonJumpNativeActionTailState(
-    void *thisPtr,
-    int mountItemId,
-    const char *reasonTag,
-    DWORD callerRet);
-static bool TryClearMountedDemonJump35121005CarrierTailState(
-    void *thisPtr,
-    int mountItemId,
     const char *reasonTag,
     DWORD callerRet);
 static bool TryReassertMountedDemonJumpChildPacketAfterOverlay(
@@ -2352,6 +2324,11 @@ static bool TryGetRecentMountedDemonJumpNativeChildSkill(
     int *skillIdOut,
     const char **sourceOut = nullptr,
     DWORD maxAgeMs = 0);
+static bool TryGetRecentMountedDemonJumpNativeChildMountItemId(
+    int *mountItemIdOut,
+    int *skillIdOut = nullptr,
+    const char **sourceOut = nullptr,
+    DWORD maxAgeMs = 0);
 static void RememberMountedDemonJumpPostPacketVisualChildSkill(
     int mountItemId,
     int skillId,
@@ -2360,6 +2337,9 @@ static bool TryGetRecentMountedDemonJumpPostPacketVisualChildSkill(
     int *mountItemIdOut,
     int *skillIdOut,
     DWORD maxAgeMs);
+static void ClearMountedDemonJumpPostPacketVisualChildSkill(
+    int mountItemId,
+    const char *reasonTag);
 static void ExpireMountedDemonJumpGlideRecentIntent(
     int mountItemId,
     const char *reasonTag);
@@ -2391,7 +2371,6 @@ static bool ShouldSuppressMountedDemonJumpMountedContextClear(
     int *mountItemIdOut = nullptr,
     int *rootSkillIdOut = nullptr,
     int *currentSkillIdOut = nullptr);
-static bool IsAddressInCurrentModule(DWORD address);
 static bool TryResolveMountedMovementDataKeyFromMountItemId(int mountItemId, int *dataKeyOut);
 static bool TryReadMountItemIdFromPlayerObjectRaw(void *playerObj, int *mountItemIdOut);
 static bool TryReadMountItemIdFromPlayerObject(void *playerObj, int *mountItemIdOut);
@@ -3373,171 +3352,6 @@ static bool ReadEncryptedTripletValue(DWORD *base, size_t keyIndex, int *outValu
 
     *outValue = static_cast<int>(key ^ RotL32(enc, 5));
     return true;
-}
-
-static bool TryReadUnalignedDword(const void *ptr, DWORD *outValue)
-{
-    if (outValue)
-    {
-        *outValue = 0;
-    }
-    if (!ptr || !outValue || SafeIsBadReadPtr(const_cast<void *>(ptr), sizeof(DWORD)))
-    {
-        return false;
-    }
-
-    __try
-    {
-        *outValue = *reinterpret_cast<const DWORD *>(ptr);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        *outValue = 0;
-        return false;
-    }
-
-    return true;
-}
-
-static bool ReadEncryptedTripletValueByByteOffset(
-    const void *base,
-    size_t keyOffset,
-    DWORD *keyOut,
-    DWORD *encOut,
-    DWORD *checkOut,
-    int *decodedOut,
-    bool *checkOkOut)
-{
-    if (keyOut)
-    {
-        *keyOut = 0;
-    }
-    if (encOut)
-    {
-        *encOut = 0;
-    }
-    if (checkOut)
-    {
-        *checkOut = 0;
-    }
-    if (decodedOut)
-    {
-        *decodedOut = 0;
-    }
-    if (checkOkOut)
-    {
-        *checkOkOut = false;
-    }
-    if (!base)
-    {
-        return false;
-    }
-
-    const BYTE *bytes = reinterpret_cast<const BYTE *>(base);
-    DWORD key = 0;
-    DWORD enc = 0;
-    DWORD check = 0;
-    if (!TryReadUnalignedDword(bytes + keyOffset, &key) ||
-        !TryReadUnalignedDword(bytes + keyOffset + 4, &enc) ||
-        !TryReadUnalignedDword(bytes + keyOffset + 8, &check))
-    {
-        return false;
-    }
-
-    const bool checkOk =
-        static_cast<unsigned int>(enc) +
-            RotR32(static_cast<unsigned int>(key) ^ 0xBAADF00Du, 5) ==
-        static_cast<unsigned int>(check);
-    if (keyOut)
-    {
-        *keyOut = key;
-    }
-    if (encOut)
-    {
-        *encOut = enc;
-    }
-    if (checkOut)
-    {
-        *checkOut = check;
-    }
-    if (checkOkOut)
-    {
-        *checkOkOut = checkOk;
-    }
-    if (decodedOut && checkOk)
-    {
-        *decodedOut = static_cast<int>(
-            static_cast<unsigned int>(key) ^
-            RotL32(static_cast<unsigned int>(enc), 5));
-    }
-
-    return true;
-}
-
-static void LogMountedDemonJumpTraceRowTriplets(
-    const char *hookTag,
-    void *thisPtr)
-{
-    if (!hookTag || !thisPtr)
-    {
-        return;
-    }
-
-    DWORD rowHead = 0;
-    const bool rowHeadOk = TryReadUnalignedDword(thisPtr, &rowHead);
-
-    DWORD key73 = 0;
-    DWORD enc73 = 0;
-    DWORD check73 = 0;
-    int decoded73 = 0;
-    bool check73Ok = false;
-    const bool triplet73Ok = ReadEncryptedTripletValueByByteOffset(
-        thisPtr,
-        73,
-        &key73,
-        &enc73,
-        &check73,
-        &decoded73,
-        &check73Ok);
-
-    DWORD key97 = 0;
-    DWORD enc97 = 0;
-    DWORD check97 = 0;
-    int decoded97 = 0;
-    bool check97Ok = false;
-    const bool triplet97Ok = ReadEncryptedTripletValueByByteOffset(
-        thisPtr,
-        97,
-        &key97,
-        &enc97,
-        &check97,
-        &decoded97,
-        &check97Ok);
-
-    static LONG s_mountedDemonJumpTraceRowTripletsLogBudget = 48;
-    if (InterlockedDecrement(&s_mountedDemonJumpTraceRowTripletsLogBudget) < 0)
-    {
-        return;
-    }
-
-    WriteLogFmt(
-        "[MountDemonJumpTrace] %s row=0x%08X head=%d headOk=%d t73ok=%d t73check=%d t73=[0x%08X,0x%08X,0x%08X] t73dec=%d t97ok=%d t97check=%d t97=[0x%08X,0x%08X,0x%08X] t97dec=%d",
-        hookTag,
-        (DWORD)(uintptr_t)thisPtr,
-        rowHeadOk ? static_cast<int>(rowHead) : 0,
-        rowHeadOk ? 1 : 0,
-        triplet73Ok ? 1 : 0,
-        check73Ok ? 1 : 0,
-        key73,
-        enc73,
-        check73,
-        decoded73,
-        triplet97Ok ? 1 : 0,
-        check97Ok ? 1 : 0,
-        key97,
-        enc97,
-        check97,
-        decoded97);
 }
 
 static bool WriteEncryptedTripletValue(DWORD *base, size_t keyIndex, int plainValue)
@@ -7945,72 +7759,6 @@ static void __cdecl hkSkillReleaseClassifierDispatch(int skillId)
     g_ForcedNativeReleaseJump = forcedJump;
 }
 
-static int ResolveMountedDemonJumpLatchedUpChildSkillId(
-    int mountItemId,
-    int rootSkillId,
-    int currentSkillId)
-{
-    if (mountItemId <= 0 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110 ||
-        !SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            30010183))
-    {
-        return 0;
-    }
-
-    // The failure-first / success-second samples do not always arrive with a
-    // fully primed root/current pair. When the mounted gate itself is already
-    // latched to the up branch, accept the "no effective context yet" shape as
-    // long as we are not currently carrying some other demon-jump child.
-    if ((rootSkillId > 0 && rootSkillId != 30010110) ||
-        (currentSkillId > 0 && currentSkillId != 30010110))
-    {
-        return 0;
-    }
-
-    void *userLocal = nullptr;
-    if (!TryReadCurrentUserLocalPtr(&userLocal) || !userLocal)
-    {
-        return 0;
-    }
-
-    const uintptr_t userLocalAddr = reinterpret_cast<uintptr_t>(userLocal);
-    if (SafeIsBadReadPtr(
-            reinterpret_cast<void *>(userLocalAddr + 24292),
-            sizeof(BYTE)))
-    {
-        return 0;
-    }
-
-    BYTE gateMode = 0;
-    BYTE upLatch = 0;
-    __try
-    {
-        gateMode = *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
-        upLatch = *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        gateMode = 0;
-        upLatch = 0;
-    }
-
-    // Latest job-100 mounted logs show the failed "retrigger after first up"
-    // path entering the classifier as root/current=30010110 while the user gate
-    // is already latched to the up branch (mode=3, upLatch=1). Mirror the
-    // native child shape here so the next classifier pass can re-enter as
-    // 30010183 instead of falling back to keep-root 30010110.
-    if (gateMode == 3 && upLatch != 0)
-    {
-        return 30010183;
-    }
-
-    return 0;
-}
-
 static int ResolveMountedDemonJumpClassifierLocalSkillId(
     int observedSkillId,
     int *mountItemIdOut,
@@ -8060,10 +7808,10 @@ static int ResolveMountedDemonJumpClassifierLocalSkillId(
 
     int rootSkillId = 0;
     int currentSkillId = 0;
-    const bool hasContext = TryReadMountedDemonJumpEffectiveContextState(
-        mountItemId,
+    const bool hasContext = TryReadMountedDemonJumpContextState(
         &rootSkillId,
-        &currentSkillId);
+        &currentSkillId,
+        nullptr);
     const bool hasRecentIntent =
         HasRecentMountedDemonJumpIntent(mountItemId, 1200);
 
@@ -8074,14 +7822,17 @@ static int ResolveMountedDemonJumpClassifierLocalSkillId(
 
     int localSkillId = 0;
     const char *localSkillSource = nullptr;
-    const bool isMountedDemonGlideProxySkill = observedSkillId == 23001002;
-    if (observedSkillId == 30010110)
+    if (observedSkillId == 30010110 ||
+        IsMountedDemonJumpRuntimeProxySkillId(observedSkillId))
     {
         if (hasContext &&
             IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
         {
             localSkillId = currentSkillId;
-            localSkillSource = "context-child";
+            localSkillSource =
+                observedSkillId == 30010110
+                    ? "context-child"
+                    : "proxy-context-child";
         }
         else
         {
@@ -8094,20 +7845,26 @@ static int ResolveMountedDemonJumpClassifierLocalSkillId(
                 IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId))
             {
                 localSkillId = recentChildSkillId;
-                localSkillSource = "recent-child-cache";
+                localSkillSource =
+                    observedSkillId == 30010110
+                        ? "recent-child-cache"
+                        : "proxy-recent-child-cache";
             }
-            else
+            else if (IsMountedDemonJumpRuntimeProxySkillId(observedSkillId))
             {
-                const int latchedUpChildSkillId =
-                    ResolveMountedDemonJumpLatchedUpChildSkillId(
-                        mountItemId,
-                        rootSkillId,
-                        currentSkillId);
-                if (IsMountedDemonJumpRuntimeChildSkillId(
-                        latchedUpChildSkillId))
+                int proxyFallbackChildSkillId = 0;
+                const char *proxyFallbackSource = nullptr;
+                if (TryResolveMountedDemonJumpProxyFallbackChildSkill(
+                        observedSkillId,
+                        &proxyFallbackChildSkillId,
+                        &proxyFallbackSource) &&
+                    IsMountedDemonJumpRuntimeChildSkillId(
+                        proxyFallbackChildSkillId))
                 {
-                    localSkillId = latchedUpChildSkillId;
-                    localSkillSource = "up-latch";
+                    localSkillId = proxyFallbackChildSkillId;
+                    localSkillSource = proxyFallbackSource
+                                           ? proxyFallbackSource
+                                           : "proxy-fallback";
                 }
             }
         }
@@ -8128,151 +7885,6 @@ static int ResolveMountedDemonJumpClassifierLocalSkillId(
 
     if (localSkillId <= 0)
     {
-        if ((observedSkillId == 20021181 ||
-             observedSkillId == 23001002 ||
-             observedSkillId == 33001002) &&
-            hasRecentIntent)
-        {
-            if (hasContext &&
-                IsMountedDemonJumpRuntimeChildSkillId(currentSkillId) &&
-                SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-                    mountItemId,
-                    currentSkillId))
-            {
-                // For glide proxy 23001002, stale up-child 30010183 must not
-                // win over the real glide child. Only keep the live child shape
-                // when it is already 30010186; otherwise let the native glide
-                // branch continue and resolve its own child.
-                if (!isMountedDemonGlideProxySkill ||
-                    currentSkillId == 30010186)
-                {
-                    localSkillId = currentSkillId;
-                    localSkillSource = "context-child-proxy";
-                }
-            }
-            else
-            {
-                int freshRecentChildSkillId = 0;
-                if (TryGetRecentMountedDemonJumpNativeChildSkill(
-                        mountItemId,
-                        &freshRecentChildSkillId,
-                        nullptr,
-                        kMountedDemonJumpLateChildCacheMatchMaxAgeMs) &&
-                        IsMountedDemonJumpRuntimeChildSkillId(
-                            freshRecentChildSkillId) &&
-                    SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-                        mountItemId,
-                        freshRecentChildSkillId))
-                {
-                    if (!isMountedDemonGlideProxySkill ||
-                        freshRecentChildSkillId == 30010186)
-                    {
-                        localSkillId = freshRecentChildSkillId;
-                        localSkillSource = "recent-child-proxy";
-                    }
-                }
-            }
-        }
-    }
-
-    if (localSkillId <= 0)
-    {
-        if ((observedSkillId == 20021181 ||
-             observedSkillId == 23001002 ||
-             observedSkillId == 33001002) &&
-            hasContext)
-        {
-            const int latchedUpChildSkillId =
-                ResolveMountedDemonJumpLatchedUpChildSkillId(
-                    mountItemId,
-                    rootSkillId,
-                    currentSkillId);
-            if (IsMountedDemonJumpRuntimeChildSkillId(
-                    latchedUpChildSkillId))
-            {
-                if (!isMountedDemonGlideProxySkill ||
-                    latchedUpChildSkillId == 30010186)
-                {
-                    localSkillId = latchedUpChildSkillId;
-                    localSkillSource = "up-latch-proxy";
-                }
-            }
-        }
-    }
-
-    if (localSkillId <= 0)
-    {
-        if ((observedSkillId == 20021181 ||
-             observedSkillId == 23001002 ||
-             observedSkillId == 33001002) &&
-            mountItemId > 0 &&
-            hasRecentIntent)
-        {
-            int recentChildSkillId = 0;
-            const bool hasRecentChild =
-                TryGetRecentMountedDemonJumpNativeChildSkill(
-                    mountItemId,
-                    &recentChildSkillId,
-                    nullptr,
-                    1500) &&
-                IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId);
-            BYTE gateMode = 0;
-            BYTE downLatch = 0;
-            BYTE upLatch = 0;
-            BYTE local5E84 = 0;
-            BYTE local5E85 = 0;
-            BYTE local5EE4 = 0;
-            void *userLocal = nullptr;
-            if (TryReadCurrentUserLocalPtr(&userLocal) && userLocal)
-            {
-                const uintptr_t userLocalAddr =
-                    reinterpret_cast<uintptr_t>(userLocal);
-                __try
-                {
-                    gateMode =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
-                    downLatch =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
-                    upLatch =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
-                    local5E84 =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 0x5E84);
-                    local5E85 =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 0x5E85);
-                    local5EE4 =
-                        *reinterpret_cast<BYTE *>(userLocalAddr + 0x5EE4);
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER)
-                {
-                    gateMode = 0;
-                    downLatch = 0;
-                    upLatch = 0;
-                    local5E84 = 0;
-                    local5E85 = 0;
-                    local5EE4 = 0;
-                }
-            }
-
-            static LONG s_mountedDemonJumpClassifierProxyUnresolvedLogBudget = 32;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpClassifierProxyUnresolvedLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpDiag] classifier unresolved observed=%d mount=%d root=%d current=%d recentIntent=%d recentChild=%d gate=%u/%u/%u local=%u/%u/%u",
-                    observedSkillId,
-                    mountItemId,
-                    rootSkillId,
-                    currentSkillId,
-                    hasRecentIntent ? 1 : 0,
-                    hasRecentChild ? recentChildSkillId : 0,
-                    static_cast<unsigned int>(gateMode),
-                    static_cast<unsigned int>(downLatch),
-                    static_cast<unsigned int>(upLatch),
-                    static_cast<unsigned int>(local5E84),
-                    static_cast<unsigned int>(local5E85),
-                    static_cast<unsigned int>(local5EE4));
-            }
-        }
         return 0;
     }
 
@@ -8464,9 +8076,7 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
                 classifierMountItemId,
                 localSkillId,
                 "B2F370");
-            ObserveMountedDemonJumpIntent(
-                classifierMountItemId,
-                "B2F370-arm-missing-intent");
+            ObserveMountedDemonJumpIntent(classifierMountItemId);
             static LONG s_mountedDemonJumpClassifierArmMissingIntentLogBudget = 24;
             if (InterlockedDecrement(
                     &s_mountedDemonJumpClassifierArmMissingIntentLogBudget) >= 0)
@@ -8680,29 +8290,6 @@ static volatile LONG g_recentMountedRuntimeSkillIntentTick[MountedRuntimeSkillKi
 static volatile LONG g_recentMountedRuntimeSkillNativeReleaseItemId[MountedRuntimeSkillKind_Count] = {0};
 static volatile LONG g_recentMountedRuntimeSkillNativeReleaseSkillId[MountedRuntimeSkillKind_Count] = {0};
 static volatile LONG g_recentMountedRuntimeSkillNativeReleaseTick[MountedRuntimeSkillKind_Count] = {0};
-static volatile LONG g_recentMountedDemonJumpGateProbeItemId = 0;
-static volatile LONG g_recentMountedDemonJumpGateProbeChildSkillId = 0;
-static volatile LONG g_recentMountedDemonJumpGateProbeTick = 0;
-static volatile LONG g_recentMountedDemonJumpTerminalClearMountItemId = 0;
-static volatile LONG g_recentMountedDemonJumpTerminalClearTick = 0;
-static volatile LONG g_mountedDemonJumpContextClearDepth = 0;
-static volatile LONG g_mountedDemonJumpResolveSafePrimeDepth = 0;
-
-static bool IsMountedDemonJumpContextClearActive()
-{
-    return InterlockedCompareExchange(
-               &g_mountedDemonJumpContextClearDepth,
-               0,
-               0) > 0;
-}
-
-static bool IsMountedDemonJumpResolveSafePrimeActive()
-{
-    return InterlockedCompareExchange(
-               &g_mountedDemonJumpResolveSafePrimeDepth,
-               0,
-               0) > 0;
-}
 
 static void ObserveExtendedMountContext(int mountItemId)
 {
@@ -8718,116 +8305,6 @@ static void ClearExtendedMountContext()
 {
     InterlockedExchange(&g_recentExtendedMountContextItemId, 0);
     InterlockedExchange(&g_recentExtendedMountContextTick, 0);
-}
-
-static void ObserveMountedDemonJumpTerminalClear(
-    int mountItemId,
-    const char *reasonTag)
-{
-    if (!kEnableMountedDoubleJumpRuntimeHooks || mountItemId <= 0)
-    {
-        return;
-    }
-
-    InterlockedExchange(
-        &g_recentMountedDemonJumpTerminalClearMountItemId,
-        mountItemId);
-    InterlockedExchange(
-        &g_recentMountedDemonJumpTerminalClearTick,
-        static_cast<LONG>(GetTickCount()));
-
-    static LONG s_mountedDemonJumpTerminalClearLogBudget = 48;
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpTerminalClearLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpClear] arm terminal-clear mount=%d reason=%s",
-            mountItemId,
-            reasonTag ? reasonTag : "unknown");
-    }
-}
-
-static void ClearMountedDemonJumpTerminalClear(
-    int mountItemId,
-    const char *reasonTag)
-{
-    const LONG recentMountItemId = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpTerminalClearMountItemId,
-        0,
-        0);
-    const LONG recentTick = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpTerminalClearTick,
-        0,
-        0);
-    if (recentMountItemId <= 0 ||
-        recentTick <= 0 ||
-        (mountItemId > 0 && recentMountItemId != mountItemId))
-    {
-        return;
-    }
-
-    InterlockedExchange(&g_recentMountedDemonJumpTerminalClearMountItemId, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpTerminalClearTick, 0);
-
-    static LONG s_mountedDemonJumpTerminalClearReleaseLogBudget = 48;
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpTerminalClearReleaseLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpClear] release terminal-clear mount=%d reason=%s",
-            mountItemId > 0 ? mountItemId : static_cast<int>(recentMountItemId),
-            reasonTag ? reasonTag : "unknown");
-    }
-}
-
-static bool ShouldReleaseMountedDemonJumpTerminalClearForReason(
-    const char *reasonTag)
-{
-    if (!reasonTag || !reasonTag[0])
-    {
-        return false;
-    }
-
-    if (strcmp(reasonTag, "B22630-raw-up-commit") == 0 ||
-        strcmp(reasonTag, "AFB710-post-context") == 0)
-    {
-        return true;
-    }
-
-    return strncmp(reasonTag, "B22630-late-child-", 19) == 0;
-}
-
-static bool HasRecentMountedDemonJumpTerminalClear(
-    int mountItemId,
-    DWORD maxAgeMs)
-{
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
-    {
-        return false;
-    }
-
-    const LONG recentMountItemId = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpTerminalClearMountItemId,
-        0,
-        0);
-    const LONG recentTick = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpTerminalClearTick,
-        0,
-        0);
-    if (recentMountItemId <= 0 || recentTick <= 0)
-    {
-        return false;
-    }
-
-    if (mountItemId > 0 && recentMountItemId != mountItemId)
-    {
-        return false;
-    }
-
-    const DWORD nowTick = GetTickCount();
-    const DWORD allowedAgeMs =
-        maxAgeMs > 0 ? maxAgeMs : kMountedDemonJumpTerminalClearSuppressMs;
-    return nowTick - static_cast<DWORD>(recentTick) <= allowedAgeMs;
 }
 
 static void ObserveMountedRuntimeSkillIntent(
@@ -8849,203 +8326,9 @@ static void ObserveMountedRuntimeSkillIntent(
         static_cast<LONG>(GetTickCount()));
 }
 
-static void ObserveMountedDemonJumpGateProbe(
-    int mountItemId,
-    const char *reasonTag,
-    DWORD callerRet)
-{
-    if (!kEnableMountedDoubleJumpRuntimeHooks ||
-        mountItemId <= 0 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110)
-    {
-        return;
-    }
-
-    int preferredChildSkillId = 0;
-    if (reasonTag &&
-        (strcmp(reasonTag, "42DE20") == 0 ||
-         strcmp(reasonTag, "42DE20-no-intent") == 0 ||
-         strcmp(reasonTag, "B844D0-up-seed") == 0 ||
-         strcmp(reasonTag, "B22630-raw-up-commit") == 0) &&
-        SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            30010183))
-    {
-        preferredChildSkillId = 30010183;
-    }
-
-    if (ShouldReleaseMountedDemonJumpTerminalClearForReason(reasonTag))
-    {
-        ClearMountedDemonJumpTerminalClear(
-            mountItemId,
-            reasonTag);
-    }
-
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeItemId, mountItemId);
-    InterlockedExchange(
-        &g_recentMountedDemonJumpGateProbeChildSkillId,
-        preferredChildSkillId);
-    InterlockedExchange(
-        &g_recentMountedDemonJumpGateProbeTick,
-        static_cast<LONG>(GetTickCount()));
-
-    static LONG s_mountedDemonJumpGateProbeLogBudget = 48;
-    if (InterlockedDecrement(&s_mountedDemonJumpGateProbeLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpProbe] arm reason=%s caller=0x%08X mount=%d",
-            reasonTag ? reasonTag : "unknown",
-            callerRet,
-            mountItemId);
-    }
-}
-
-static bool TryGetRecentMountedDemonJumpGateProbeMountItemId(
-    int *mountItemIdOut,
-    DWORD maxAgeMs)
-{
-    if (mountItemIdOut)
-    {
-        *mountItemIdOut = 0;
-    }
-
-    const LONG mountItemId =
-        InterlockedCompareExchange(&g_recentMountedDemonJumpGateProbeItemId, 0, 0);
-    const LONG tick =
-        InterlockedCompareExchange(&g_recentMountedDemonJumpGateProbeTick, 0, 0);
-    if (mountItemId <= 0 || tick <= 0)
-    {
-        return false;
-    }
-
-    const DWORD nowTick = GetTickCount();
-    if (nowTick - static_cast<DWORD>(tick) > maxAgeMs)
-    {
-        return false;
-    }
-
-    if (mountItemIdOut)
-    {
-        *mountItemIdOut = static_cast<int>(mountItemId);
-    }
-    return true;
-}
-
-static bool TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-    int mountItemId,
-    int *skillIdOut,
-    DWORD maxAgeMs)
-{
-    if (skillIdOut)
-    {
-        *skillIdOut = 0;
-    }
-
-    int probeMountItemId = 0;
-    if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
-            &probeMountItemId,
-            maxAgeMs) ||
-        probeMountItemId <= 0 ||
-        (mountItemId > 0 && probeMountItemId != mountItemId))
-    {
-        return false;
-    }
-
-    const int preferredChildSkillId = static_cast<int>(
-        InterlockedCompareExchange(
-            &g_recentMountedDemonJumpGateProbeChildSkillId,
-            0,
-            0));
-    if (!IsMountedDemonJumpRuntimeChildSkillId(preferredChildSkillId))
-    {
-        return false;
-    }
-
-    if (skillIdOut)
-    {
-        *skillIdOut = preferredChildSkillId;
-    }
-    return true;
-}
-
 static void ObserveMountedDoubleJumpIntent(int mountItemId)
 {
     ObserveMountedRuntimeSkillIntent(MountedRuntimeSkillKind_DoubleJump, mountItemId);
-}
-
-static void ClearMountedRuntimeSkillTransientStateIfMatching(
-    MountedRuntimeSkillKind kind,
-    int mountItemId,
-    const char *reasonTag,
-    const char *logTag)
-{
-    if (!kEnableMountedDoubleJumpRuntimeHooks || mountItemId <= 0)
-    {
-        return;
-    }
-
-    const LONG recentIntentMountItemId = InterlockedCompareExchange(
-        &g_recentMountedRuntimeSkillIntentItemId[kind],
-        0,
-        0);
-    const LONG recentIntentTick = InterlockedCompareExchange(
-        &g_recentMountedRuntimeSkillIntentTick[kind],
-        0,
-        0);
-    const LONG recentNativeReleaseMountItemId = InterlockedCompareExchange(
-        &g_recentMountedRuntimeSkillNativeReleaseItemId[kind],
-        0,
-        0);
-    const LONG recentNativeReleaseSkillId = InterlockedCompareExchange(
-        &g_recentMountedRuntimeSkillNativeReleaseSkillId[kind],
-        0,
-        0);
-    const LONG recentNativeReleaseTick = InterlockedCompareExchange(
-        &g_recentMountedRuntimeSkillNativeReleaseTick[kind],
-        0,
-        0);
-    const bool hadIntent = recentIntentMountItemId == mountItemId;
-    const bool hadNativeRelease = recentNativeReleaseMountItemId == mountItemId;
-    if (!hadIntent && !hadNativeRelease)
-    {
-        return;
-    }
-
-    DWORD intentAgeMs = 0;
-    if (hadIntent && recentIntentTick > 0)
-    {
-        intentAgeMs = GetTickCount() - static_cast<DWORD>(recentIntentTick);
-    }
-    DWORD nativeReleaseAgeMs = 0;
-    if (hadNativeRelease && recentNativeReleaseTick > 0)
-    {
-        nativeReleaseAgeMs =
-            GetTickCount() - static_cast<DWORD>(recentNativeReleaseTick);
-    }
-
-    InterlockedExchange(&g_recentMountedRuntimeSkillIntentItemId[kind], 0);
-    InterlockedExchange(&g_recentMountedRuntimeSkillIntentTick[kind], 0);
-    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseItemId[kind], 0);
-    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseSkillId[kind], 0);
-    InterlockedExchange(&g_recentMountedRuntimeSkillNativeReleaseTick[kind], 0);
-
-    static LONG s_clearMountedRuntimeSkillTransientStateLogBudget = 96;
-    if (InterlockedDecrement(
-            &s_clearMountedRuntimeSkillTransientStateLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[%s] clear transient runtime mount=%d reason=%s hadIntent=%d intentAge=%u hadRelease=%d releaseSkill=%d releaseAge=%u",
-            logTag ? logTag : "MountRuntimeSkill",
-            mountItemId,
-            reasonTag ? reasonTag : "unknown",
-            hadIntent ? 1 : 0,
-            intentAgeMs,
-            hadNativeRelease ? 1 : 0,
-            hadNativeRelease ? static_cast<int>(recentNativeReleaseSkillId) : 0,
-            nativeReleaseAgeMs);
-    }
 }
 
 static DWORD NormalizeMountedRuntimeSkillIntentAgeMs(
@@ -9062,29 +8345,9 @@ static DWORD NormalizeMountedRuntimeSkillIntentAgeMs(
     return allowedAgeMs;
 }
 
-static void ObserveMountedDemonJumpIntent(
-    int mountItemId,
-    const char *reasonTag)
+static void ObserveMountedDemonJumpIntent(int mountItemId)
 {
     ObserveMountedRuntimeSkillIntent(MountedRuntimeSkillKind_DemonJump, mountItemId);
-    if (ShouldReleaseMountedDemonJumpTerminalClearForReason(reasonTag))
-    {
-        ClearMountedDemonJumpTerminalClear(
-            mountItemId,
-            reasonTag);
-    }
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeItemId, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeChildSkillId, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeTick, 0);
-    // Mounted demon jump and mounted double-jump share early native gates on
-    // mounts that have both skills enabled. Once the demon path is confirmed,
-    // clear the stale double-jump transient state for this same mount so the
-    // later flight/landing branch does not keep seeing both intents at once.
-    ClearMountedRuntimeSkillTransientStateIfMatching(
-        MountedRuntimeSkillKind_DoubleJump,
-        mountItemId,
-        reasonTag ? reasonTag : "demon-intent",
-        "MountDoubleJump");
     PrimeMountedDemonJumpContextIfNeeded(mountItemId, "intent");
 }
 
@@ -9747,78 +9010,6 @@ static bool HasMountedDemonJumpContextPrimedForMount(
         return false;
     }
 
-    if (!IsMountedDemonJumpRuntimeChildSkillId(currentSkillId) &&
-        (currentSkillId <= 0 ||
-         currentSkillId == configuredSkillId) &&
-        HasRecentMountedDemonJumpIntent(
-            mountItemId,
-            kMountedDemonJumpLateChildCacheMatchMaxAgeMs))
-    {
-        int recentChildSkillId = 0;
-        if (TryGetRecentMountedDemonJumpNativeChildSkill(
-                mountItemId,
-                &recentChildSkillId,
-                nullptr,
-                kMountedDemonJumpLateChildCacheMatchMaxAgeMs) &&
-            IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId) &&
-            SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-                mountItemId,
-                recentChildSkillId))
-        {
-            // Evidence from v23.04 job-100 logs:
-            // B300AC can already reroute root/proxy release to child=30010183,
-            // but the immediate action chain still re-reads root/current as
-            // 30010110/30010110 and loses the local up-jump motion.
-            // Promote the fresh native child cache only inside the short
-            // recent-intent window so the action/late path sees the same
-            // child-shaped context as the previously successful build.
-            static LONG s_mountedDemonJumpContextPromoteFreshChildLogBudget = 48;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpContextPromoteFreshChildLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpContext] promote fresh child mount=%d root=%d current=%d -> child=%d intent=1",
-                    mountItemId,
-                    rootSkillId,
-                    currentSkillId,
-                    recentChildSkillId);
-            }
-            currentSkillId = recentChildSkillId;
-        }
-        else
-        {
-            int probeChildSkillId = 0;
-            if (TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-                    mountItemId,
-                    &probeChildSkillId,
-                    kMountedDemonJumpIntentMaxAgeMs) &&
-                probeChildSkillId == 30010183 &&
-                SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-                    mountItemId,
-                    probeChildSkillId))
-            {
-                // v23.43 logs show a slow first mounted up-jump can age past
-                // the short recent-child cache while the up gate-probe is still
-                // fresh. Keep this fallback narrow to the verified up-child so
-                // later late-route helpers still see the intended child context.
-                static LONG s_mountedDemonJumpContextPromoteProbeChildLogBudget =
-                    32;
-                if (InterlockedDecrement(
-                        &s_mountedDemonJumpContextPromoteProbeChildLogBudget) >=
-                    0)
-                {
-                    WriteLogFmt(
-                        "[MountDemonJumpContext] promote probe child mount=%d root=%d current=%d -> child=%d intent=1",
-                        mountItemId,
-                        rootSkillId,
-                        currentSkillId,
-                        probeChildSkillId);
-                }
-                currentSkillId = probeChildSkillId;
-            }
-        }
-    }
-
     if (currentSkillIdOut)
     {
         *currentSkillIdOut = currentSkillId > 0 ? currentSkillId : rootSkillId;
@@ -9828,74 +9019,6 @@ static bool HasMountedDemonJumpContextPrimedForMount(
         *rootSkillIdOut = rootSkillId;
     }
     return true;
-}
-
-static bool HasFreshMountedRuntimeSkillNativeReleaseRaw(
-    MountedRuntimeSkillKind kind,
-    int expectedSkillId,
-    int expectedMountItemId,
-    DWORD maxAgeMs = 450)
-{
-    if (!kEnableMountedDoubleJumpRuntimeHooks ||
-        expectedSkillId <= 0 ||
-        expectedMountItemId <= 0)
-    {
-        return false;
-    }
-
-    const LONG recentSkillId =
-        InterlockedCompareExchange(
-            &g_recentMountedRuntimeSkillNativeReleaseSkillId[kind],
-            0,
-            0);
-    const LONG recentMountItemId =
-        InterlockedCompareExchange(
-            &g_recentMountedRuntimeSkillNativeReleaseItemId[kind],
-            0,
-            0);
-    const LONG recentTick =
-        InterlockedCompareExchange(
-            &g_recentMountedRuntimeSkillNativeReleaseTick[kind],
-            0,
-            0);
-    if (recentSkillId != expectedSkillId ||
-        recentMountItemId != expectedMountItemId ||
-        recentTick <= 0)
-    {
-        return false;
-    }
-
-    const DWORD nowTick = GetTickCount();
-    return nowTick - static_cast<DWORD>(recentTick) <= maxAgeMs;
-}
-
-static bool TryReadMountedDemonJumpEffectiveContextState(
-    int mountItemId,
-    int *rootSkillIdOut,
-    int *currentSkillIdOut)
-{
-    if (rootSkillIdOut)
-    {
-        *rootSkillIdOut = 0;
-    }
-    if (currentSkillIdOut)
-    {
-        *currentSkillIdOut = 0;
-    }
-
-    if (mountItemId > 0 &&
-        HasMountedDemonJumpContextPrimedForMount(
-            mountItemId,
-            currentSkillIdOut,
-            rootSkillIdOut))
-    {
-        return true;
-    }
-
-    return TryReadMountedDemonJumpContextState(
-        rootSkillIdOut,
-        currentSkillIdOut,
-        nullptr);
 }
 
 static bool ShouldSuppressMountedDemonJumpMountedContextClear(
@@ -9975,21 +9098,6 @@ static bool ShouldSuppressMountedDemonJumpMountedContextClear(
     if (rootSkillId != configuredSkillId &&
         !rootIsChild &&
         !currentIsChild)
-    {
-        return false;
-    }
-
-    // Evidence from v22.25 logs:
-    // mounted side child 30010184 reaches B28A00 successfully, but the
-    // postpacket finalize path does not clear root/current immediately.
-    // If 433FEC is still suppressed here, the native tail never gets a chance
-    // to drop the remaining context/local gate, which leaves side-jump unable
-    // to retrigger for a few seconds after landing. Allow only this exact
-    // 433FEC side-child tail through; up-child still uses its existing
-    // B28A00->433FEC finalize path and glide keeps its own native context.
-    if (callerRet == 0x00433FEC &&
-        rootSkillId == configuredSkillId &&
-        currentSkillId == 30010184)
     {
         return false;
     }
@@ -10220,84 +9328,6 @@ static bool TryManualPrimeMountedDemonJumpContext(
     return primed;
 }
 
-static bool TryManualPrimeMountedDemonJumpContextResolveSafe(
-    int mountItemId,
-    const char *reason,
-    int *currentSkillIdOut,
-    int *rootSkillIdOut)
-{
-    if (currentSkillIdOut)
-    {
-        *currentSkillIdOut = 0;
-    }
-    if (rootSkillIdOut)
-    {
-        *rootSkillIdOut = 0;
-    }
-
-    if (mountItemId <= 0)
-    {
-        return false;
-    }
-
-    int currentMountItemId = 0;
-    if (!TryReadCurrentUserMountItemId(&currentMountItemId) ||
-        currentMountItemId != mountItemId)
-    {
-        return false;
-    }
-
-    void *userLocal = nullptr;
-    if (!TryReadCurrentUserLocalPtr(&userLocal))
-    {
-        return false;
-    }
-
-    struct ScopedResolveSafePrimeGuard
-    {
-        ScopedResolveSafePrimeGuard()
-        {
-            InterlockedIncrement(&g_mountedDemonJumpResolveSafePrimeDepth);
-        }
-
-        ~ScopedResolveSafePrimeGuard()
-        {
-            InterlockedDecrement(&g_mountedDemonJumpResolveSafePrimeDepth);
-        }
-    } scopedResolveSafePrimeGuard;
-
-    int currentSkillId = 0;
-    int rootSkillId = 0;
-    const bool primed = TryManualPrimeMountedDemonJumpContext(
-        userLocal,
-        mountItemId,
-        &currentSkillId,
-        &rootSkillId);
-    if (currentSkillIdOut)
-    {
-        *currentSkillIdOut = currentSkillId;
-    }
-    if (rootSkillIdOut)
-    {
-        *rootSkillIdOut = rootSkillId;
-    }
-
-    static LONG s_mountedDemonJumpResolveSafePrimeLogBudget = 32;
-    if (InterlockedDecrement(&s_mountedDemonJumpResolveSafePrimeLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpPrime] resolve-safe reason=%s mount=%d user=0x%08X root=%d current=%d primed=%d",
-            reason ? reason : "unknown",
-            mountItemId,
-            static_cast<DWORD>(reinterpret_cast<uintptr_t>(userLocal)),
-            rootSkillId,
-            currentSkillId,
-            primed ? 1 : 0);
-    }
-
-    return primed;
-}
-
 static bool PrimeMountedDemonJumpContextIfNeeded(
     int mountItemId,
     const char *reason,
@@ -10331,30 +9361,6 @@ static bool PrimeMountedDemonJumpContextIfNeeded(
     if (!TryReadCurrentUserMountItemId(&currentMountItemId) ||
         currentMountItemId != mountItemId)
     {
-        return false;
-    }
-
-    const bool eagerIntentPrime =
-        reason != nullptr &&
-        strcmp(reason, "intent") == 0;
-    if (eagerIntentPrime)
-    {
-        // Current v23.06 runtime evidence shows the very first mounted up-jump
-        // often stalls here on a failed native+manual prime:
-        //   [MountDemonJumpPrime] reason=intent ... primed=0 native=1 manual=1
-        // That consumes the short recent-intent window, then 42DE20 falls back
-        // into the no-intent branch and the real release only succeeds after
-        // several retries. Keep the early intent arm lightweight; later
-        // B22630 / 42DE20 / B300AC paths still perform the real prime exactly
-        // where the native child/release chain is already confirmed.
-        static LONG s_mountedDemonJumpPrimeSkipIntentLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpPrimeSkipIntentLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpPrime] skip eager intent mount=%d",
-                mountItemId);
-        }
         return false;
     }
 
@@ -10715,6 +9721,15 @@ static bool TryResolveMountedRuntimeSkillMountItemIdWithFallback(
              ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
     {
         source = "native-release";
+    }
+    else if (kind == MountedRuntimeSkillKind_DemonJump &&
+             TryGetRecentMountedDemonJumpNativeChildMountItemId(
+                 &mountItemId,
+                 nullptr,
+                 &source,
+                 maxAgeMs > 0 ? maxAgeMs : 1500) &&
+             ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
+    {
     }
     else if (TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &source) &&
              ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
@@ -11577,52 +10592,6 @@ static void ClearMountedSoaringFlightActive()
     InterlockedExchange(&g_activeMountedSoaringFlightItemId, 0);
     InterlockedExchange(&g_activeMountedSoaringFlightTick, 0);
     InterlockedExchange(&g_activeMountedSoaringFlightStartTick, 0);
-}
-
-static bool TryForceClearMountedSoaringFlightActiveForMount(
-    int mountItemId,
-    const char *reasonTag)
-{
-    if (mountItemId <= 0)
-    {
-        return false;
-    }
-
-    const LONG activeMountItemId =
-        InterlockedCompareExchange(&g_activeMountedSoaringFlightItemId, 0, 0);
-    if (activeMountItemId <= 0 ||
-        activeMountItemId != mountItemId)
-    {
-        return false;
-    }
-
-    const LONG activeTick =
-        InterlockedCompareExchange(&g_activeMountedSoaringFlightTick, 0, 0);
-    const LONG activeStartTick =
-        InterlockedCompareExchange(&g_activeMountedSoaringFlightStartTick, 0, 0);
-    const DWORD nowTick = GetTickCount();
-    const DWORD ageMs =
-        activeTick > 0 ? (nowTick - static_cast<DWORD>(activeTick)) : 0;
-    const DWORD activeDurationMs =
-        activeStartTick > 0
-            ? (nowTick - static_cast<DWORD>(activeStartTick))
-            : 0;
-
-    ClearMountedSoaringFlightActive();
-
-    static LONG s_mountedSoaringFlightForcedClearLogBudget = 32;
-    if (InterlockedDecrement(
-            &s_mountedSoaringFlightForcedClearLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountFlightState] clear active reason=%s mount=%d age=%u duration=%u",
-            reasonTag ? reasonTag : "unknown",
-            mountItemId,
-            ageMs,
-            activeDurationMs);
-    }
-
-    return true;
 }
 
 static void ClearMountedSoaringRuntimeFallbackState()
@@ -12944,20 +11913,6 @@ static bool TryResolveMountedFlightScalarAdaptiveScale(
     double minVelDelta,
     double *appliedScaleOut);
 
-static DWORD ResolveMountedFlightCruiseMinActiveMsForMount(int mountItemId)
-{
-    if (mountItemId > 0 &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) == 30010110 &&
-        HasRecentMountedDemonJumpIntent(mountItemId, 250))
-    {
-        return 40;
-    }
-
-    return kMountedFlightCruiseMinActiveMs;
-}
-
 static bool TryGetMountedSoaringFlightTiming(
     int mountItemId,
     DWORD *ageMsOut,
@@ -13032,12 +11987,10 @@ static bool HasFreshMountedSoaringFlightCruiseTiming(
         return false;
     }
 
-    const DWORD minActiveMs = ResolveMountedFlightCruiseMinActiveMsForMount(
-        mountItemId);
     // Only boost sustained cruise frames. Skipping the first ~120ms avoids
     // stretching the takeoff / mounted jump arc. `ageMs` here is not a per-frame
     // flight heartbeat, so do not use it as a hard stop gate.
-    if (activeDurationMs < minActiveMs)
+    if (activeDurationMs < kMountedFlightCruiseMinActiveMs)
     {
         return false;
     }
@@ -13675,98 +12628,6 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
             &motionMode40,
             &motionMode44,
             &motionBranch);
-    const bool hasRecentMountedDemonUpIntent =
-        activeMountItemId > 0 &&
-        HasRecentMountedDemonJumpIntent(activeMountItemId, 250);
-    int recentGateProbeMountItemId = 0;
-    const bool hasRecentMatchingMountedDemonUpProbe =
-        activeMountItemId > 0 &&
-        TryGetRecentMountedDemonJumpGateProbeMountItemId(
-            &recentGateProbeMountItemId,
-            250) &&
-        recentGateProbeMountItemId == activeMountItemId;
-    const bool hasRecentMountedDemonTerminalClear =
-        activeMountItemId > 0 &&
-        HasRecentMountedDemonJumpTerminalClear(
-            activeMountItemId,
-            kMountedDemonJumpTerminalClearSuppressMs);
-    BYTE currentDownLatch = 0;
-    bool hasCurrentDownLatch = false;
-    void *currentUserLocal = nullptr;
-    if (TryReadCurrentUserLocalPtr(&currentUserLocal) && currentUserLocal)
-    {
-        const uintptr_t userLocalAddr =
-            reinterpret_cast<uintptr_t>(currentUserLocal);
-        __try
-        {
-            currentDownLatch =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
-            hasCurrentDownLatch = true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            currentDownLatch = 0;
-            hasCurrentDownLatch = false;
-        }
-    }
-    const bool shouldSeedMountedDemonUpProbeEarlyCandidate =
-        activeMountItemId > 0 &&
-        hasControlTargets &&
-        hasMotionBranch &&
-        branchState == 0 &&
-        // Latest v23.37 logs show the first mounted up-branch reaches
-        // B844D0 with h=1 before the current h=2 seed point. Keep the seed
-        // narrow to the same mounted demon-jump motion branch, but allow that
-        // earlier h=1 phase too so the first trigger does not wait for the
-        // later frame.
-        (horizontalTarget == 1 || horizontalTarget == 2) &&
-        verticalTarget == 0 &&
-        motionBranch == kMountedFlightNativeMotionBranchPrimary48 &&
-        (!hasCurrentDownLatch || currentDownLatch == 0) &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            activeMountItemId) == 30010110 &&
-        SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            activeMountItemId,
-            30010183) &&
-        !hasRecentMountedDemonUpIntent &&
-        !hasRecentMatchingMountedDemonUpProbe;
-    const bool shouldSeedMountedDemonUpProbeEarly =
-        shouldSeedMountedDemonUpProbeEarlyCandidate &&
-        !hasRecentMountedDemonTerminalClear;
-    if (shouldSeedMountedDemonUpProbeEarlyCandidate &&
-        hasRecentMountedDemonTerminalClear)
-    {
-        static LONG s_mountedFlightB844D0UpSeedSuppressLogBudget = 32;
-        if (InterlockedDecrement(
-                &s_mountedFlightB844D0UpSeedSuppressLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpProbe] B844D0 suppress terminal-clear mount=%d state=%d h=%d v=%d branch=%d",
-                activeMountItemId,
-                branchState,
-                horizontalTarget,
-                verticalTarget,
-                motionBranch);
-        }
-    }
-    if (shouldSeedMountedDemonUpProbeEarly)
-    {
-        DWORD staleFlightAgeMs = 0;
-        DWORD staleFlightDurationMs = 0;
-        const bool hasStaleMountedSoaringFlightActive =
-            TryGetMountedSoaringFlightTiming(
-                activeMountItemId,
-                &staleFlightAgeMs,
-                &staleFlightDurationMs) &&
-            staleFlightAgeMs > kMountedDemonJumpIntentMaxAgeMs;
-        if (hasStaleMountedSoaringFlightActive)
-        {
-            TryForceClearMountedSoaringFlightActiveForMount(
-                activeMountItemId,
-                "B844D0-up-seed-stale-active");
-        }
-    }
     const bool shouldRefreshActiveFlight =
         hasAnyScale &&
         activeMountItemId > 0 &&
@@ -13859,82 +12720,6 @@ static void __fastcall hkMountedFlightPhysicsStepB844D0(
             motionMode40,
             motionMode44,
             motionBranch);
-    }
-
-    if (shouldSeedMountedDemonUpProbeEarly)
-    {
-        const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
-        DWORD staleFlightAgeMs = 0;
-        DWORD staleFlightDurationMs = 0;
-        const bool hasStaleMountedSoaringFlightActive =
-            TryGetMountedSoaringFlightTiming(
-                activeMountItemId,
-                &staleFlightAgeMs,
-                &staleFlightDurationMs) &&
-            staleFlightAgeMs > kMountedDemonJumpIntentMaxAgeMs;
-        if (hasStaleMountedSoaringFlightActive)
-        {
-            TryForceClearMountedSoaringFlightActiveForMount(
-                activeMountItemId,
-                "B844D0-up-seed-stale-active");
-        }
-        RememberMountedDemonJumpNativeChildSkill(
-            activeMountItemId,
-            30010183,
-            "B844D0-up-seed");
-        ObserveMountedRuntimeSkillIntent(
-            MountedRuntimeSkillKind_DemonJump,
-            activeMountItemId);
-        ObserveMountedDemonJumpGateProbe(
-            activeMountItemId,
-            "B844D0-up-seed",
-            callerRet);
-
-        int seededRootSkillId = 0;
-        int seededCurrentSkillId = 0;
-        const bool hasSeededUpChildContext =
-            TryReadMountedDemonJumpEffectiveContextState(
-                activeMountItemId,
-                &seededRootSkillId,
-                &seededCurrentSkillId) &&
-            seededRootSkillId == 30010110 &&
-            seededCurrentSkillId == 30010183;
-        bool primedUpSeedContext = false;
-        int primedUpSeedCurrentSkillId = 0;
-        if (!hasSeededUpChildContext)
-        {
-            int primedUpSeedRootSkillId = 0;
-            primedUpSeedContext =
-                TryManualPrimeMountedDemonJumpContextResolveSafe(
-                    activeMountItemId,
-                    "B844D0-up-seed",
-                    &primedUpSeedCurrentSkillId,
-                    &primedUpSeedRootSkillId);
-            if (primedUpSeedContext)
-            {
-                seededRootSkillId = primedUpSeedRootSkillId;
-                seededCurrentSkillId = primedUpSeedCurrentSkillId;
-            }
-        }
-
-        static LONG s_mountedFlightB844D0UpSeedLogBudget = 32;
-        if (InterlockedDecrement(&s_mountedFlightB844D0UpSeedLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpProbe] B844D0 early-up seed caller=0x%08X mount=%d state=%d h=%d v=%d branch=%d recentIntent=%d recentProbe=%d staleActive=%d armIntent=1 prime=%d root=%d current=%d",
-                callerRet,
-                activeMountItemId,
-                branchState,
-                horizontalTarget,
-                verticalTarget,
-                motionBranch,
-                hasRecentMountedDemonUpIntent ? 1 : 0,
-                hasRecentMatchingMountedDemonUpProbe ? 1 : 0,
-                hasStaleMountedSoaringFlightActive ? 1 : 0,
-                primedUpSeedContext ? 1 : 0,
-                seededRootSkillId,
-                seededCurrentSkillId);
-        }
     }
 
     if (oMountedFlightPhysicsStepB844D0)
@@ -14233,24 +13018,6 @@ static bool ShouldMountedDemonJumpForceReleaseFallthrough(DWORD returnAddr)
            returnAddr == 0x00B1D0B8;
 }
 
-static bool ShouldMountedDemonJumpNoIntentReleaseFallback(DWORD returnAddr)
-{
-    // Cross-job mounted demon jump differs from native 3001 in one critical
-    // way: the user can reach the release caller without ever arming a native
-    // demon-jump recent window first. In the failing job-100 logs this shows
-    // up as:
-    //   42DE20 caller=0x00B1BFA7 ... demonIntent=0
-    //   followed immediately by B844D0/B83C90 flight branches, with no
-    //   B22630/AFB710/B2F370 release chain.
-    //
-    // Keep the fallback narrow to the two release callers that are already
-    // documented as "zero enters mounted release chain". Do not apply it to
-    // the earlier setup callers (ADF02B/B1D0B8), otherwise plain mounted
-    // movement setup can be misread as a demon-jump trigger.
-    return returnAddr == 0x00B1BFA7 ||
-           returnAddr == 0x00B1CCC7;
-}
-
 static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused*/)
 {
     int result = oMountedStateGate42DE20
@@ -14350,54 +13117,6 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
             hasMountedDemonContext ? demonContextRootSkillId : 0,
             hasMountedDemonContext ? demonContextSkillId : 0);
     }
-
-    if (mountedDemonJumpSkillId > 0 &&
-        !hasRecentMountedDemonJumpIntent &&
-        ShouldMountedDemonJumpForceReleaseFallthrough(callerRet))
-    {
-        ObserveMountedDemonJumpGateProbe(
-            mountItemId,
-            "42DE20",
-            callerRet);
-    }
-    if (mountedDemonJumpSkillId > 0 &&
-        !hasRecentMountedDoubleJumpIntent &&
-        !hasRecentMountedDemonJumpIntent &&
-        ShouldMountedDemonJumpNoIntentReleaseFallback(callerRet))
-    {
-        ObserveMountedDemonJumpGateProbe(
-            mountItemId,
-            "42DE20-no-intent",
-            callerRet);
-        ObserveMountedDemonJumpIntent(
-            mountItemId,
-            "42DE20-no-intent");
-        PrimeMountedDemonJumpContextIfNeeded(
-            mountItemId,
-            "42DE20-no-intent",
-            &demonContextSkillId);
-        hasMountedDemonContext = HasMountedDemonJumpContextPrimedForMount(
-            mountItemId,
-            &demonContextSkillId,
-            &demonContextRootSkillId);
-
-        static LONG s_mountedStateGateDemonNoIntentFallbackLogBudget = 24;
-        const LONG budgetAfterDecrement =
-            InterlockedDecrement(
-                &s_mountedStateGateDemonNoIntentFallbackLogBudget);
-        if (budgetAfterDecrement >= 0)
-        {
-            WriteLogFmt(
-                "[MountStateGate] 42DE20 demon no-intent fallback caller=0x%08X mount=%d native=%d root=%d current=%d context=%d -> forceZero",
-                callerRet,
-                mountItemId,
-                result,
-                hasMountedDemonContext ? demonContextRootSkillId : 0,
-                hasMountedDemonContext ? demonContextSkillId : 0,
-                hasMountedDemonContext ? 1 : 0);
-        }
-        return 0;
-    }
     if (!hasRecentMountedDoubleJumpIntent && !hasRecentMountedDemonJumpIntent)
     {
         return result;
@@ -14430,26 +13149,10 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
     return forcedResult;
 }
 
-static int __fastcall hkMountedDemonJumpContextClear433380Impl(
+static int __fastcall hkMountedDemonJumpContextClear433380(
     void *contextPtr,
     void * /*edxUnused*/)
 {
-    if (IsMountedDemonJumpResolveSafePrimeActive())
-    {
-        static LONG s_mountedDemonJumpContextClearResolveSafeBypassLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpContextClearResolveSafeBypassLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpContext] 433380 resolve-safe bypass context=0x%08X caller=0x%08X",
-                (DWORD)(uintptr_t)contextPtr,
-                (DWORD)(uintptr_t)_ReturnAddress());
-        }
-        return oMountedDemonJumpContextClear433380
-                   ? oMountedDemonJumpContextClear433380(contextPtr)
-                   : 0;
-    }
-
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     int passMountItemId = 0;
     int passRootSkillId = 0;
@@ -14488,78 +13191,6 @@ static int __fastcall hkMountedDemonJumpContextClear433380Impl(
     static LONG s_mountedDemonJumpContextClearPassLogBudget = 64;
     const bool shouldLogPassClear =
         InterlockedDecrement(&s_mountedDemonJumpContextClearPassLogBudget) >= 0;
-    const bool shouldLogNativeClearTailState =
-        shouldLogPassClear &&
-        (callerRet == 0x00433EAA || callerRet == 0x00433FEC);
-    struct MountedDemonJumpContextTailState
-    {
-        void *playerObj;
-        DWORD state4A4;
-        int state3DDC;
-        int state4DE4;
-        int state5D7C;
-        int state5F2C;
-        BYTE gateMode;
-        BYTE downLatch;
-        BYTE upLatch;
-        int slot;
-        bool valid;
-    };
-    MountedDemonJumpContextTailState nativeClearBeforeState = {};
-    MountedDemonJumpContextTailState nativeClearAfterState = {};
-    bool hasNativeClearBeforeState = false;
-    bool hasNativeClearAfterState = false;
-    auto ReadMountedDemonJumpContextTailState =
-        [](MountedDemonJumpContextTailState *outState) -> bool
-    {
-        if (!outState)
-        {
-            return false;
-        }
-
-        memset(outState, 0, sizeof(*outState));
-        void *playerObj = nullptr;
-        if (!TryReadMountedDemonJumpPrimePlayerObject(&playerObj) ||
-            !playerObj ||
-            SafeIsBadReadPtr(playerObj, 0x5F30))
-        {
-            return false;
-        }
-
-        const uintptr_t playerValue =
-            reinterpret_cast<uintptr_t>(playerObj);
-        __try
-        {
-            outState->playerObj = playerObj;
-            outState->state4A4 =
-                *reinterpret_cast<DWORD *>(playerValue + 0x4A4);
-            outState->state3DDC =
-                *reinterpret_cast<int *>(playerValue + 0x3DDC);
-            outState->state4DE4 =
-                *reinterpret_cast<int *>(playerValue + 0x4DE4);
-            outState->state5D7C =
-                *reinterpret_cast<int *>(playerValue + 0x5D7C);
-            outState->state5F2C =
-                *reinterpret_cast<int *>(playerValue + 0x5F2C);
-            outState->gateMode =
-                *reinterpret_cast<BYTE *>(playerValue + 0x5E84);
-            outState->downLatch =
-                *reinterpret_cast<BYTE *>(playerValue + 0x5E85);
-            outState->upLatch =
-                *reinterpret_cast<BYTE *>(playerValue + 0x5EE4);
-            outState->slot =
-                *reinterpret_cast<int *>(playerValue + 0x5E8C);
-            outState->valid = true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            memset(outState, 0, sizeof(*outState));
-            outState->valid = false;
-            return false;
-        }
-
-        return true;
-    };
     {
         void *userLocal = nullptr;
         const bool hasUserLocal =
@@ -14597,75 +13228,6 @@ static int __fastcall hkMountedDemonJumpContextClear433380Impl(
             HasRecentMountedDemonJumpIntent(
                 liveMountItemId,
                 kMountedDemonJumpContextClearProtectMs);
-        int freshProbeMountItemId = 0;
-        const bool hasFreshProbe =
-            hasMountItem &&
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &freshProbeMountItemId,
-                kMountedDemonJumpContextClearProtectMs) &&
-            freshProbeMountItemId == liveMountItemId;
-        int freshRecentChildSkillId = 0;
-        const bool hasFreshRecentUpChild =
-            hasMountItem &&
-            TryGetRecentMountedDemonJumpNativeChildSkill(
-                liveMountItemId,
-                &freshRecentChildSkillId,
-                nullptr,
-                kMountedDemonJumpLateChildPrimeWindowMs) &&
-            freshRecentChildSkillId == 30010183;
-
-        const bool shouldSuppressInModuleResolveSafePassClear =
-            IsAddressInCurrentModule(callerRet) &&
-            contextMatches &&
-            configuredSkillId == 30010110 &&
-            liveMountItemId > 0 &&
-            hasRecentIntent &&
-            hasFreshProbe &&
-            hasPrimedContext &&
-            primedRootSkillId == 30010110 &&
-            (primedCurrentSkillId == 30010183 ||
-             (primedCurrentSkillId == 30010110 &&
-              hasFreshRecentUpChild));
-
-        if (shouldSuppressInModuleResolveSafePassClear)
-        {
-            const int suppressCurrentSkillId =
-                primedCurrentSkillId == 30010110 &&
-                        hasFreshRecentUpChild
-                    ? 30010183
-                    : primedCurrentSkillId;
-            static LONG s_mountedDemonJumpContextClearInModuleSuppressLogBudget =
-                32;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpContextClearInModuleSuppressLogBudget) >=
-                0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpContext] 433380 in-module suppress caller=0x%08X context=0x%08X mount=%d recent=%d probe=%d recentChild=%d root=%d current=%d",
-                    callerRet,
-                    (DWORD)(uintptr_t)contextPtr,
-                    liveMountItemId,
-                    hasRecentIntent ? 1 : 0,
-                    hasFreshProbe ? 1 : 0,
-                    hasFreshRecentUpChild ? freshRecentChildSkillId : 0,
-                    primedRootSkillId,
-                    suppressCurrentSkillId);
-            }
-
-            void *playerObj = nullptr;
-            if (TryReadMountedDemonJumpPrimePlayerObject(&playerObj) &&
-                playerObj)
-            {
-                TryClearMountedDemonJumpLateLocalLockState(
-                    playerObj,
-                    liveMountItemId,
-                    primedRootSkillId,
-                    suppressCurrentSkillId,
-                    "433380-inmodule-suppress",
-                    callerRet);
-            }
-            return 0;
-        }
 
         if (configuredSkillId == 30010110 &&
             liveMountItemId > 0 &&
@@ -14729,116 +13291,9 @@ static int __fastcall hkMountedDemonJumpContextClear433380Impl(
         }
     }
 
-    if (shouldLogNativeClearTailState)
-    {
-        hasNativeClearBeforeState =
-            ReadMountedDemonJumpContextTailState(
-                &nativeClearBeforeState) &&
-            nativeClearBeforeState.valid;
-    }
-
     const int result = oMountedDemonJumpContextClear433380
                            ? oMountedDemonJumpContextClear433380(contextPtr)
                            : 0;
-
-    if (shouldLogNativeClearTailState)
-    {
-        hasNativeClearAfterState =
-            ReadMountedDemonJumpContextTailState(
-                &nativeClearAfterState) &&
-            nativeClearAfterState.valid;
-
-        if (hasNativeClearBeforeState)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpContextTail] %s this=0x%08X 4A4=0x%08X 3DDC=%d 4DE4=%d 5D7C=%d 5F2C=%d gate=%u/%u/%u slot=0x%08X",
-                callerRet == 0x00433FEC ? "433FEC-before" : "433EAA-before",
-                (DWORD)(uintptr_t)nativeClearBeforeState.playerObj,
-                nativeClearBeforeState.state4A4,
-                nativeClearBeforeState.state3DDC,
-                nativeClearBeforeState.state4DE4,
-                nativeClearBeforeState.state5D7C,
-                nativeClearBeforeState.state5F2C,
-                static_cast<unsigned int>(
-                    nativeClearBeforeState.gateMode),
-                static_cast<unsigned int>(
-                    nativeClearBeforeState.downLatch),
-                static_cast<unsigned int>(
-                    nativeClearBeforeState.upLatch),
-                nativeClearBeforeState.slot);
-        }
-        if (hasNativeClearAfterState)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpContextTail] %s this=0x%08X 4A4=0x%08X 3DDC=%d 4DE4=%d 5D7C=%d 5F2C=%d gate=%u/%u/%u slot=0x%08X",
-                callerRet == 0x00433FEC ? "433FEC-after" : "433EAA-after",
-                (DWORD)(uintptr_t)nativeClearAfterState.playerObj,
-                nativeClearAfterState.state4A4,
-                nativeClearAfterState.state3DDC,
-                nativeClearAfterState.state4DE4,
-                nativeClearAfterState.state5D7C,
-                nativeClearAfterState.state5F2C,
-                static_cast<unsigned int>(
-                    nativeClearAfterState.gateMode),
-                static_cast<unsigned int>(
-                    nativeClearAfterState.downLatch),
-                static_cast<unsigned int>(
-                    nativeClearAfterState.upLatch),
-                nativeClearAfterState.slot);
-        }
-    }
-
-    if (callerRet == 0x00433FEC)
-    {
-        int tailMountItemId = 0;
-        if (TryReadCurrentUserMountItemId(&tailMountItemId) &&
-            tailMountItemId > 0 &&
-            ResolveMountedRuntimeSkillIdForKind(
-                MountedRuntimeSkillKind_DemonJump,
-                tailMountItemId) == 30010110)
-        {
-            void *playerObj = hasNativeClearAfterState &&
-                                      nativeClearAfterState.valid
-                                  ? nativeClearAfterState.playerObj
-                                  : nullptr;
-            if (!playerObj)
-            {
-                TryReadMountedDemonJumpPrimePlayerObject(&playerObj);
-            }
-            if (playerObj)
-            {
-                if (hasNativeClearBeforeState &&
-                    hasNativeClearAfterState &&
-                    nativeClearBeforeState.valid &&
-                    nativeClearAfterState.valid &&
-                    nativeClearBeforeState.slot != 0 &&
-                    nativeClearAfterState.slot == 0 &&
-                    (nativeClearAfterState.gateMode != 0 ||
-                     nativeClearAfterState.downLatch != 0 ||
-                     nativeClearAfterState.upLatch != 0) &&
-                    nativeClearAfterState.state5D7C == 0 &&
-                    nativeClearAfterState.state5F2C == 0)
-                {
-                    TryClearMountedDemonJumpTailLocalGateState(
-                        playerObj,
-                        tailMountItemId,
-                        "433380-tail-local-gate",
-                        callerRet);
-                }
-
-                TryForceFinalizeMountedDemonJumpNativeActionTailState(
-                    playerObj,
-                    tailMountItemId,
-                    "433380-tail-native-action",
-                    callerRet);
-                TryClearMountedDemonJump35121005CarrierTailState(
-                    playerObj,
-                    tailMountItemId,
-                    "433380-tail-carrier-tail",
-                    callerRet);
-            }
-        }
-    }
 
     if (shouldClearLateLocalLock)
     {
@@ -14903,84 +13358,37 @@ static int __fastcall hkMountedDemonJumpContextClear433380Impl(
             }
         }
 
-        int freshProbeMountItemId = 0;
-        const bool hasFreshTerminalIntent =
-            HasRecentMountedDemonJumpIntent(
-                passTerminalProbeMountItemId,
-                kMountedDemonJumpContextClearProtectMs);
-        const bool hasFreshTerminalProbe =
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &freshProbeMountItemId,
-                kMountedDemonJumpContextClearProtectMs) &&
-            freshProbeMountItemId == passTerminalProbeMountItemId;
-
-        const bool shouldClearRecentOnlyTerminalTransient =
-            !contextStillActive &&
-            !lateLocalLockStillActive &&
-            // A fresh mounted demon-jump retrigger can legitimately arrive
-            // before the native gate probe re-arms. Do not re-arm the
-            // terminal-clear blocker in that short recent-intent window, or
-            // the next root 30010110 lookup gets rejected before the chain can
-            // seed a new 30010183 child again.
-            !hasFreshTerminalIntent &&
-            !hasFreshTerminalProbe;
-
-        if (shouldClearRecentOnlyTerminalTransient)
+        if (!contextStillActive && !lateLocalLockStillActive)
         {
             static LONG s_mountedDemonJumpContextTerminalClearLogBudget = 48;
             if (InterlockedDecrement(
                     &s_mountedDemonJumpContextTerminalClearLogBudget) >= 0)
             {
                 WriteLogFmt(
-                    "[MountDemonJumpContext] 433380 terminal clear caller=0x%08X mount=%d root=%d current=%d lateLock=%d recent=%d probe=%d",
+                    "[MountDemonJumpContext] 433380 terminal clear caller=0x%08X mount=%d root=%d current=%d lateLock=%d",
                     callerRet,
                     passTerminalProbeMountItemId,
                     hasAfterContext ? afterRootSkillId : 0,
                     hasAfterContext ? afterCurrentSkillId : 0,
-                    lateLocalLockStillActive ? 1 : 0,
-                    hasFreshTerminalIntent ? 1 : 0,
-                    hasFreshTerminalProbe ? 1 : 0);
+                    lateLocalLockStillActive ? 1 : 0);
             }
 
-            ObserveMountedDemonJumpTerminalClear(
-                passTerminalProbeMountItemId,
-                "433380-pass-terminal");
+            if (playerObj)
+            {
+                TryClearMountedDemonJumpResidualLandingState(
+                    playerObj,
+                    passTerminalProbeMountItemId,
+                    30010110,
+                    0,
+                    "433380-pass-terminal",
+                    callerRet);
+            }
             ClearMountedDemonJumpTransientRuntimeState(
                 passTerminalProbeMountItemId,
                 "433380-pass-terminal");
         }
-        else if ((!contextStillActive && !lateLocalLockStillActive) &&
-                 (hasFreshTerminalIntent || hasFreshTerminalProbe))
-        {
-            static LONG s_mountedDemonJumpContextTerminalSkipLogBudget = 48;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpContextTerminalSkipLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpContext] 433380 terminal keep caller=0x%08X mount=%d root=%d current=%d lateLock=%d recent=%d probe=%d",
-                    callerRet,
-                    passTerminalProbeMountItemId,
-                    hasAfterContext ? afterRootSkillId : 0,
-                    hasAfterContext ? afterCurrentSkillId : 0,
-                    lateLocalLockStillActive ? 1 : 0,
-                    hasFreshTerminalIntent ? 1 : 0,
-                    hasFreshTerminalProbe ? 1 : 0);
-            }
-        }
     }
 
-    return result;
-}
-
-static int __fastcall hkMountedDemonJumpContextClear433380(
-    void *contextPtr,
-    void *edxUnused)
-{
-    InterlockedIncrement(&g_mountedDemonJumpContextClearDepth);
-    const int result = hkMountedDemonJumpContextClear433380Impl(
-        contextPtr,
-        edxUnused);
-    InterlockedDecrement(&g_mountedDemonJumpContextClearDepth);
     return result;
 }
 
@@ -15003,79 +13411,14 @@ static bool HasMountedDemonJumpLateSustainIntent(
         return true;
     }
 
-    // v23.36 latest mounted-up logs:
-    //   575D60/B22630 a2=18 a3=0x00380300 recent=1
-    //   575D60/B22630 a2=18 a3=0x80380000 recent=1
-    //   575D60/B22630 a2=38 a3=0x01480000 recent=0 while root/current are still
-    //   30010110/30010110 and the native up gate is already latched (mode=3,
-    //   upLatch=1).
-    //
-    // IDA-derived helper ResolveMountedDemonJumpLatchedUpChildSkillId already
-    // recognizes that exact gate shape as the native transition into child
-    // 30010183. Reuse it here, but keep the sustain extremely narrow:
-    // - only mounted demon-jump root context
-    // - only before current has become a child
-    // - only while the same mount still has a fresh gate probe
-    if (rootSkillId == 30010110 &&
-        currentSkillId == 30010110)
-    {
-        int gateProbeMountItemId = 0;
-        const bool hasRecentMatchingGateProbe =
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &gateProbeMountItemId,
-                maxAgeMs + 250) &&
-            gateProbeMountItemId == mountItemId;
-        if (hasRecentMatchingGateProbe &&
-            ResolveMountedDemonJumpLatchedUpChildSkillId(
-                mountItemId,
-                rootSkillId,
-                currentSkillId) == 30010183)
-        {
-            return true;
-        }
-    }
-
-    // Evidence captured in the knowledge base (v22.53) already narrowed the
-    // only safe late-sustain shapes:
-    // - side child 30010184 may reuse the fresh child cache briefly;
-    // - glide child 30010186 may reuse only a real recent glide packet while
-    //   mounted soaring is still actively alive.
-    // Do not revive children purely because current still says 30010184/30010186.
-    if (rootSkillId != 30010110)
-    {
-        return false;
-    }
-
-    if (currentSkillId == 30010184)
-    {
-        int recentChildSkillId = 0;
-        return TryGetRecentMountedDemonJumpNativeChildSkill(
-                   mountItemId,
-                   &recentChildSkillId,
-                   nullptr,
-                   kMountedDemonJumpLateChildCacheMatchMaxAgeMs) &&
-               recentChildSkillId == 30010184;
-    }
-
-    if (currentSkillId == 30010186)
-    {
-        DWORD glidePacketAgeMs = 0;
-        const bool hasRecentGlidePacket =
-            ShouldSuppressMountedDemonJumpRepeatedGlidePacket(
-                mountItemId,
-                kMountedDemonJumpGlidePacketSustainMaxAgeMs,
-                &glidePacketAgeMs);
-        DWORD activeAgeMs = 0;
-        DWORD activeDurationMs = 0;
-        const bool hasActiveSoaringFlight =
-            TryGetMountedSoaringFlightTiming(
-                mountItemId,
-                &activeAgeMs,
-                &activeDurationMs);
-        return hasRecentGlidePacket && hasActiveSoaringFlight;
-    }
-
-    return false;
+    // Evidence from v21.96 runtime logs:
+    // once current=30010184/30010186 is active, the late movement path still
+    // needs demon intent even if 433380/B22630 has already aged out the short
+    // recent-intent window. Keep this narrow to side-jump/glide and avoid
+    // reviving stale 30010183 up-jump children.
+    return rootSkillId == 30010110 &&
+           (currentSkillId == 30010184 ||
+            currentSkillId == 30010186);
 }
 
 static bool ShouldObserveMountedDemonJumpLatePath(
@@ -15103,7 +13446,11 @@ static bool ShouldObserveMountedDemonJumpLatePath(
 
     int mountItemId = 0;
     const bool hasMount =
-        TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, nullptr) &&
+        TryResolveMountedDemonJumpMountItemIdWithFallback(
+            nullptr,
+            &mountItemId,
+            nullptr,
+            1500) &&
         mountItemId > 0;
     int rootSkillId = 0;
     int currentSkillId = 0;
@@ -15159,111 +13506,34 @@ static int __fastcall hkMountedDemonJumpLateRoute575D60(
     int rootSkillId = 0;
     int currentSkillId = 0;
     bool hasRecentIntent = false;
+    BYTE beforeGateMode = 0;
+    BYTE beforeDownLatch = 0;
+    BYTE beforeUpLatch = 0;
+    const uintptr_t beforeUserLocalAddr =
+        reinterpret_cast<uintptr_t>(thisPtr);
+    if (beforeUserLocalAddr)
+    {
+        __try
+        {
+            beforeGateMode =
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24292);
+            beforeDownLatch =
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24196);
+            beforeUpLatch =
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24197);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            beforeGateMode = 0;
+            beforeDownLatch = 0;
+            beforeUpLatch = 0;
+        }
+    }
     const bool shouldLog = ShouldObserveMountedDemonJumpLatePath(
         &mountItemId,
         &rootSkillId,
         &currentSkillId,
         &hasRecentIntent);
-    const bool isObservedUpLatchStepSignature =
-        a2 == 18 &&
-        static_cast<unsigned int>(a3) == 0x80380000u;
-    const bool isObservedUpCommitSignature =
-        a2 == 38 &&
-        (static_cast<unsigned int>(a3) == 0x01480000u ||
-         static_cast<unsigned int>(a3) == 0x81480000u);
-    const bool shouldTryLateRoutePreseed =
-        mountItemId > 0 &&
-        hasRecentIntent &&
-        (isObservedUpLatchStepSignature || isObservedUpCommitSignature) &&
-        ((rootSkillId == 0 && currentSkillId == 0) ||
-         (rootSkillId == 30010110 && currentSkillId == 30010110));
-    bool primedLateRoutePreseed = false;
-    bool forcedRawLateRoutePreseed = false;
-    int primedLateRouteRootSkillId = 0;
-    int primedLateRouteCurrentSkillId = 0;
-    if (shouldTryLateRoutePreseed)
-    {
-        int gateProbeChildSkillId = 0;
-        const bool hasFreshUpGateProbe =
-            TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-                mountItemId,
-                &gateProbeChildSkillId,
-                kMountedDemonJumpIntentMaxAgeMs) &&
-            gateProbeChildSkillId == 30010183;
-        if (hasFreshUpGateProbe)
-        {
-            int primedCurrentSkillId = 0;
-            if (rootSkillId == 30010110 &&
-                currentSkillId == 30010110)
-            {
-                forcedRawLateRoutePreseed =
-                    TryManualPrimeMountedDemonJumpContextResolveSafe(
-                        mountItemId,
-                        "575D60-preseed-root-only-up",
-                        &primedCurrentSkillId,
-                        &primedLateRouteRootSkillId);
-                if (forcedRawLateRoutePreseed)
-                {
-                    primedLateRoutePreseed = true;
-                    primedLateRouteCurrentSkillId = primedCurrentSkillId;
-                }
-            }
-            if (!primedLateRoutePreseed)
-            {
-                primedLateRoutePreseed =
-                    PrimeMountedDemonJumpContextIfNeeded(
-                        mountItemId,
-                        "575D60-preseed",
-                        &primedCurrentSkillId);
-            }
-            if (primedLateRoutePreseed)
-            {
-                // v23.35 logs show that preseed can restore root/current for the
-                // first mounted up-jump while the original short recent-intent
-                // window has already expired before the first B22630 commit runs.
-                // Refresh only the narrow demon intent timestamp here so the
-                // first late-route commit keeps recent=1 without broadening the
-                // global up/side/glide intent window.
-                ObserveMountedRuntimeSkillIntent(
-                    MountedRuntimeSkillKind_DemonJump,
-                    mountItemId);
-                if (!TryReadMountedDemonJumpEffectiveContextState(
-                        mountItemId,
-                        &primedLateRouteRootSkillId,
-                        &primedLateRouteCurrentSkillId))
-                {
-                    primedLateRouteRootSkillId = 30010110;
-                    if (!IsMountedDemonJumpRuntimeChildSkillId(
-                            primedLateRouteCurrentSkillId))
-                    {
-                        primedLateRouteCurrentSkillId =
-                            primedCurrentSkillId > 0
-                                ? primedCurrentSkillId
-                                : 30010183;
-                    }
-                }
-                rootSkillId = primedLateRouteRootSkillId;
-                currentSkillId = primedLateRouteCurrentSkillId;
-            }
-
-            static LONG s_mountedDemonJumpLateRoutePreseedLogBudget = 32;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpLateRoutePreseedLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpLate] 575D60 preseed a2=%d a3=0x%08X mount=%d recent=%d probeChild=%d prime=%d forceRaw=%d root=%d current=%d",
-                    a2,
-                    a3,
-                    mountItemId,
-                    hasRecentIntent ? 1 : 0,
-                    gateProbeChildSkillId,
-                    primedLateRoutePreseed ? 1 : 0,
-                    forcedRawLateRoutePreseed ? 1 : 0,
-                    primedLateRouteRootSkillId,
-                    primedLateRouteCurrentSkillId);
-            }
-        }
-    }
     if (shouldLog)
     {
         static LONG s_mountedDemonJumpLateRouteEnterLogBudget = 64;
@@ -15366,32 +13636,25 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
     UINT a2,
     int a3)
 {
-    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     int mountItemId = 0;
     int rootSkillId = 0;
     int currentSkillId = 0;
     bool hasRecentIntent = false;
-    const bool shouldLog = ShouldObserveMountedDemonJumpLatePath(
-        &mountItemId,
-        &rootSkillId,
-        &currentSkillId,
-        &hasRecentIntent);
-
     BYTE beforeGateMode = 0;
     BYTE beforeDownLatch = 0;
     BYTE beforeUpLatch = 0;
-    const uintptr_t userLocalAddr =
+    const uintptr_t beforeUserLocalAddr =
         reinterpret_cast<uintptr_t>(thisPtr);
-    if (userLocalAddr)
+    if (beforeUserLocalAddr)
     {
         __try
         {
             beforeGateMode =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24292);
             beforeDownLatch =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24196);
             beforeUpLatch =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
+                *reinterpret_cast<BYTE *>(beforeUserLocalAddr + 24197);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -15400,84 +13663,11 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
             beforeUpLatch = 0;
         }
     }
-
-    const bool isObservedGlideCommitSignature =
-        a2 == 18 &&
-        static_cast<unsigned int>(a3) == 0x00380300u;
-    const bool isObservedUpLatchStepSignature =
-        a2 == 18 &&
-        static_cast<unsigned int>(a3) == 0x80380000u;
-
-    if (thisPtr &&
-        mountItemId > 0 &&
-        hasRecentIntent &&
-        (a2 == 39 || a2 == 38 || isObservedUpLatchStepSignature) &&
-        beforeGateMode == 3 &&
-        beforeDownLatch == 0 &&
-        ((rootSkillId == 0 && currentSkillId == 0) ||
-         (rootSkillId == 30010110 && currentSkillId == 30010110)) &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) == 30010110)
-    {
-        int gateProbeChildSkillId = 0;
-        if (TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-                mountItemId,
-                &gateProbeChildSkillId,
-                kMountedDemonJumpIntentMaxAgeMs) &&
-            gateProbeChildSkillId == 30010183)
-        {
-            int primedEnterRootSkillId = 0;
-            int primedEnterCurrentSkillId = 0;
-            bool didEnterUpPreseed =
-                ForceRefreshMountedDemonJumpContextSeed(
-                    thisPtr,
-                    mountItemId,
-                    "B22630-enter-up-preseed",
-                    &primedEnterCurrentSkillId,
-                    &primedEnterRootSkillId);
-            if (!didEnterUpPreseed &&
-                TryReadMountedDemonJumpEffectiveContextState(
-                    mountItemId,
-                    &primedEnterRootSkillId,
-                    &primedEnterCurrentSkillId) &&
-                primedEnterRootSkillId == 30010110 &&
-                primedEnterCurrentSkillId == 30010183)
-            {
-                didEnterUpPreseed = true;
-            }
-
-            if (didEnterUpPreseed)
-            {
-                rootSkillId = primedEnterRootSkillId > 0
-                                  ? primedEnterRootSkillId
-                                  : 30010110;
-                currentSkillId =
-                    IsMountedDemonJumpRuntimeChildSkillId(
-                        primedEnterCurrentSkillId)
-                        ? primedEnterCurrentSkillId
-                        : 30010183;
-
-                static LONG
-                    s_mountedDemonJumpContextInputEnterPreseedLogBudget = 32;
-                if (InterlockedDecrement(
-                        &s_mountedDemonJumpContextInputEnterPreseedLogBudget) >=
-                    0)
-                {
-                    WriteLogFmt(
-                        "[MountDemonJumpLate] B22630 enter preseed mount=%d a2=%u a3=0x%08X gate=%u/%u/%u root=%d current=%d",
-                        mountItemId,
-                        a2,
-                        a3,
-                        static_cast<unsigned int>(beforeGateMode),
-                        static_cast<unsigned int>(beforeDownLatch),
-                        static_cast<unsigned int>(beforeUpLatch),
-                        rootSkillId,
-                        currentSkillId);
-                }
-            }
-        }
-    }
+    const bool shouldLog = ShouldObserveMountedDemonJumpLatePath(
+        &mountItemId,
+        &rootSkillId,
+        &currentSkillId,
+        &hasRecentIntent);
     if (shouldLog)
     {
         static LONG s_mountedDemonJumpContextInputEnterLogBudget = 96;
@@ -15502,227 +13692,19 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                             : 0;
     int afterRootSkillId = 0;
     int afterCurrentSkillId = 0;
-    bool hasAfterContext = TryReadMountedDemonJumpContextState(
+    const bool hasAfterContext = TryReadMountedDemonJumpContextState(
         &afterRootSkillId,
         &afterCurrentSkillId,
         nullptr);
     int effectiveMountItemId = mountItemId;
     if (effectiveMountItemId <= 0)
     {
-        TryResolveCurrentUserMountItemIdWithFallback(
+        TryResolveMountedDemonJumpMountItemIdWithFallback(
+            nullptr,
             &effectiveMountItemId,
-            nullptr);
+            nullptr,
+            1500);
     }
-    BYTE afterGateMode = 0;
-    BYTE afterDownLatch = 0;
-    BYTE afterUpLatch = 0;
-    if (userLocalAddr)
-    {
-        __try
-        {
-            afterGateMode =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
-            afterDownLatch =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
-            afterUpLatch =
-                *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            afterGateMode = 0;
-            afterDownLatch = 0;
-            afterUpLatch = 0;
-        }
-    }
-
-    const bool isMountedDemonJumpConfiguredMount =
-        effectiveMountItemId > 0 &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            effectiveMountItemId) == 30010110;
-    const bool isObservedUpCommitSignature =
-        a2 == 38 &&
-        (static_cast<unsigned int>(a3) == 0x01480000u ||
-         static_cast<unsigned int>(a3) == 0x81480000u);
-    if (isMountedDemonJumpConfiguredMount &&
-        isObservedUpCommitSignature)
-    {
-        static LONG s_mountedDemonJumpContextInputUpCommitProbeLogBudget = 48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpContextInputUpCommitProbeLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpLate] B22630 up probe caller=0x%08X mount=%d result=%u recent=%d root=%d current=%d gate=%u/%u/%u->%u/%u/%u a2=%u a3=0x%08X",
-                callerRet,
-                effectiveMountItemId,
-                result,
-                hasRecentIntent ? 1 : 0,
-                afterRootSkillId,
-                afterCurrentSkillId,
-                static_cast<unsigned int>(beforeGateMode),
-                static_cast<unsigned int>(beforeDownLatch),
-                static_cast<unsigned int>(beforeUpLatch),
-                static_cast<unsigned int>(afterGateMode),
-                static_cast<unsigned int>(afterDownLatch),
-                static_cast<unsigned int>(afterUpLatch),
-                a2,
-                a3);
-        }
-    }
-    if (isMountedDemonJumpConfiguredMount &&
-        !(hasAfterContext &&
-          afterRootSkillId == 30010110 &&
-          IsMountedDemonJumpRuntimeChildSkillId(afterCurrentSkillId)))
-    {
-        const bool hadRealRecentIntent =
-            HasRecentMountedDemonJumpIntent(
-                effectiveMountItemId,
-                kMountedDemonJumpIntentMaxAgeMs);
-        const bool hadLateSustainIntent =
-            HasMountedDemonJumpLateSustainIntent(
-                effectiveMountItemId,
-                afterRootSkillId,
-                afterCurrentSkillId,
-                kMountedDemonJumpIntentMaxAgeMs);
-        const bool looksLikeStrictRawUpCommit =
-            isObservedUpCommitSignature &&
-            result == 4 &&
-            beforeGateMode == 3 &&
-            beforeUpLatch != 0 &&
-            afterGateMode == 3 &&
-            afterUpLatch == 0;
-        const bool looksLikeRelaxedRawUpCommit =
-            isObservedUpCommitSignature &&
-            result == 4;
-        const bool looksLikeRawUpCommit =
-            looksLikeStrictRawUpCommit ||
-            looksLikeRelaxedRawUpCommit;
-        if (!hadRealRecentIntent &&
-            !hadLateSustainIntent &&
-            looksLikeRawUpCommit)
-        {
-            RememberMountedDemonJumpNativeChildSkill(
-                effectiveMountItemId,
-                30010183,
-                "B22630-raw-up-commit");
-            ObserveMountedDemonJumpGateProbe(
-                effectiveMountItemId,
-                "B22630-raw-up-commit",
-                callerRet);
-            ObserveMountedDemonJumpIntent(
-                effectiveMountItemId,
-                "B22630-raw-up-commit");
-
-            int primedCurrentSkillId = 0;
-            int primedRootSkillId = 0;
-            const bool primed =
-                thisPtr &&
-                ForceRefreshMountedDemonJumpContextSeed(
-                    thisPtr,
-                    effectiveMountItemId,
-                    "B22630-raw-up-commit",
-                    &primedCurrentSkillId,
-                    &primedRootSkillId);
-            if (primed)
-            {
-                hasAfterContext = true;
-                afterRootSkillId = primedRootSkillId;
-                afterCurrentSkillId = primedCurrentSkillId;
-            }
-
-            static LONG s_mountedDemonJumpContextInputRawUpCommitLogBudget = 32;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpContextInputRawUpCommitLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpLate] B22630 raw up commit caller=0x%08X mount=%d result=%u a2=%u a3=0x%08X gate=%u/%u/%u->%u/%u/%u strict=%d intent=1 prime=%d primedRoot=%d primedCurrent=%d",
-                    callerRet,
-                    effectiveMountItemId,
-                    result,
-                    a2,
-                    a3,
-                    static_cast<unsigned int>(beforeGateMode),
-                    static_cast<unsigned int>(beforeDownLatch),
-                    static_cast<unsigned int>(beforeUpLatch),
-                    static_cast<unsigned int>(afterGateMode),
-                    static_cast<unsigned int>(afterDownLatch),
-                    static_cast<unsigned int>(afterUpLatch),
-                    looksLikeStrictRawUpCommit ? 1 : 0,
-                    primed ? 1 : 0,
-                    primed ? primedRootSkillId : 0,
-                    primed ? primedCurrentSkillId : 0);
-            }
-        }
-    }
-
-    if (effectiveMountItemId > 0 &&
-        isObservedGlideCommitSignature &&
-        afterRootSkillId == 30010110 &&
-        afterCurrentSkillId == 30010186 &&
-        beforeGateMode == 3 &&
-        beforeDownLatch == 0 &&
-        beforeUpLatch != 0)
-    {
-        int gateProbeChildSkillId = 0;
-        if (TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-                effectiveMountItemId,
-                &gateProbeChildSkillId,
-                kMountedDemonJumpIntentMaxAgeMs) &&
-            gateProbeChildSkillId == 30010183)
-        {
-            int restoredRootSkillId = 0;
-            int restoredCurrentSkillId = 0;
-            bool restoredUpContext = false;
-            if (thisPtr)
-            {
-                restoredUpContext =
-                    ForceRefreshMountedDemonJumpContextSeed(
-                        thisPtr,
-                        effectiveMountItemId,
-                        "B22630-glide-hijack-restore-up",
-                        &restoredCurrentSkillId,
-                        &restoredRootSkillId);
-            }
-            if (!restoredUpContext &&
-                TryReadMountedDemonJumpEffectiveContextState(
-                    effectiveMountItemId,
-                    &restoredRootSkillId,
-                    &restoredCurrentSkillId) &&
-                restoredRootSkillId == 30010110 &&
-                restoredCurrentSkillId == 30010183)
-            {
-                restoredUpContext = true;
-            }
-            if (restoredUpContext)
-            {
-                afterRootSkillId = restoredRootSkillId;
-                afterCurrentSkillId = restoredCurrentSkillId;
-                static LONG s_mountedDemonJumpContextInputGlideHijackRestoreLogBudget =
-                    32;
-                if (InterlockedDecrement(
-                        &s_mountedDemonJumpContextInputGlideHijackRestoreLogBudget) >=
-                    0)
-                {
-                    WriteLogFmt(
-                        "[MountDemonJumpLate] B22630 restore up after glide hijack caller=0x%08X mount=%d a2=%u a3=0x%08X gate=%u/%u/%u->%u/%u/%u restored=%d/%d probeChild=%d",
-                        callerRet,
-                        effectiveMountItemId,
-                        a2,
-                        a3,
-                        static_cast<unsigned int>(beforeGateMode),
-                        static_cast<unsigned int>(beforeDownLatch),
-                        static_cast<unsigned int>(beforeUpLatch),
-                        static_cast<unsigned int>(afterGateMode),
-                        static_cast<unsigned int>(afterDownLatch),
-                        static_cast<unsigned int>(afterUpLatch),
-                        afterRootSkillId,
-                        afterCurrentSkillId,
-                        gateProbeChildSkillId);
-                }
-            }
-        }
-    }
-
     if (effectiveMountItemId > 0 &&
         hasAfterContext &&
         afterRootSkillId == 30010110 &&
@@ -15734,81 +13716,26 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
         const bool hadRealRecentIntent =
             HasRecentMountedDemonJumpIntent(
                 effectiveMountItemId,
-                kMountedDemonJumpIntentMaxAgeMs);
+                250);
         const bool hadLateSustainIntent =
             HasMountedDemonJumpLateSustainIntent(
                 effectiveMountItemId,
                 afterRootSkillId,
                 afterCurrentSkillId,
-                kMountedDemonJumpIntentMaxAgeMs);
-        const bool hasNonZeroGateSnapshot =
-            beforeGateMode != 0 ||
-            beforeDownLatch != 0 ||
-            beforeUpLatch != 0;
-        int gateProbeMountItemId = 0;
-        const bool hasRecentMatchingGateProbe =
-            afterRootSkillId == 30010110 &&
-            afterCurrentSkillId == 30010183 &&
-            isObservedUpCommitSignature &&
-            result == 4 &&
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &gateProbeMountItemId,
-                kMountedDemonJumpIntentMaxAgeMs + 250) &&
-            gateProbeMountItemId == effectiveMountItemId;
-        const bool wasAlreadyOnSameRuntimeChild =
-            rootSkillId == afterRootSkillId &&
-            currentSkillId == afterCurrentSkillId &&
-            IsMountedDemonJumpRuntimeChildSkillId(currentSkillId);
+                250);
+        const int effectiveLateChildSkillId = afterCurrentSkillId;
         const bool shouldArmLateUpChild =
             !hadRealRecentIntent &&
-            !hadLateSustainIntent &&
             afterRootSkillId == 30010110 &&
-            afterCurrentSkillId == 30010183 &&
-            wasAlreadyOnSameRuntimeChild &&
-            hasNonZeroGateSnapshot;
-        const bool shouldArmLateUpChildFromGateProbe =
-            !hadRealRecentIntent &&
-            !hadLateSustainIntent &&
-            afterRootSkillId == 30010110 &&
-            afterCurrentSkillId == 30010183 &&
-            isObservedUpCommitSignature &&
-            result == 4 &&
-            hasRecentMatchingGateProbe;
-        if (afterCurrentSkillId == 30010186 &&
-            isObservedUpLatchStepSignature &&
-            beforeUpLatch == 0 &&
-            afterUpLatch != 0)
-        {
-            static LONG s_mountedDemonJumpContextInputSkipGlideOnUpLatchLogBudget =
-                24;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpContextInputSkipGlideOnUpLatchLogBudget) >=
-                0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpLate] B22630 skip glide late-child arm on up-latch mount=%d result=%u a2=%u a3=0x%08X gate=%u/%u/%u->%u/%u/%u",
-                    effectiveMountItemId,
-                    result,
-                    a2,
-                    a3,
-                    static_cast<unsigned int>(beforeGateMode),
-                    static_cast<unsigned int>(beforeDownLatch),
-                    static_cast<unsigned int>(beforeUpLatch),
-                    static_cast<unsigned int>(afterGateMode),
-                    static_cast<unsigned int>(afterDownLatch),
-                    static_cast<unsigned int>(afterUpLatch));
-            }
-        }
-        else if (hadRealRecentIntent)
+            effectiveLateChildSkillId == 30010183;
+        if (hadRealRecentIntent)
         {
             RememberMountedDemonJumpNativeChildSkill(
                 effectiveMountItemId,
-                afterCurrentSkillId,
+                effectiveLateChildSkillId,
                 "B22630");
         }
-        else if (hadLateSustainIntent ||
-                 shouldArmLateUpChild ||
-                 shouldArmLateUpChildFromGateProbe)
+        else if (hadLateSustainIntent || shouldArmLateUpChild)
         {
             int recentChildSkillId = 0;
             const bool hadRecentChildCache =
@@ -15816,61 +13743,30 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                     effectiveMountItemId,
                     &recentChildSkillId,
                     nullptr,
-                    kMountedDemonJumpLateChildCacheMatchMaxAgeMs) &&
+                    1500) &&
                 IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId);
             const bool hadMatchingRecentChildCache =
                 hadRecentChildCache &&
-                recentChildSkillId == afterCurrentSkillId;
-            const bool shouldForceRefreshMatchingUpChild =
-                hadMatchingRecentChildCache &&
-                afterCurrentSkillId == 30010183 &&
-                isObservedUpCommitSignature &&
-                result == 4;
-            const bool shouldForceRefreshMatchingSideChild =
-                hadMatchingRecentChildCache &&
-                afterCurrentSkillId == 30010184 &&
-                result == 4;
+                recentChildSkillId == effectiveLateChildSkillId;
             if (!hadMatchingRecentChildCache)
             {
                 RememberMountedDemonJumpNativeChildSkill(
                     effectiveMountItemId,
-                    afterCurrentSkillId,
+                    effectiveLateChildSkillId,
                     "B22630");
             }
-            if (shouldForceRefreshMatchingUpChild)
+            if (!hadMatchingRecentChildCache)
             {
-                RememberMountedDemonJumpNativeChildSkill(
-                    effectiveMountItemId,
-                    afterCurrentSkillId,
-                    "B22630-up-refresh");
-            }
-            if (shouldForceRefreshMatchingSideChild)
-            {
-                RememberMountedDemonJumpNativeChildSkill(
-                    effectiveMountItemId,
-                    afterCurrentSkillId,
-                    "B22630-side-refresh");
-            }
-            if (!hadMatchingRecentChildCache ||
-                shouldForceRefreshMatchingUpChild ||
-                shouldForceRefreshMatchingSideChild)
-            {
-                const char *refreshReason =
-                    shouldArmLateUpChildFromGateProbe
-                        ? "B22630-late-child-up-probe"
-                        : shouldForceRefreshMatchingUpChild
-                        ? "B22630-late-child-up-refresh"
-                        : afterCurrentSkillId == 30010183
-                        ? "B22630-late-child-up"
-                        : (afterCurrentSkillId == 30010184
-                               ? "B22630-late-child-side"
-                               : "B22630-late-child-glide");
-                ObserveMountedDemonJumpIntent(
-                    effectiveMountItemId,
-                    refreshReason);
+                ObserveMountedDemonJumpIntent(effectiveMountItemId);
                 int primedCurrentSkillId = 0;
                 int primedRootSkillId = 0;
                 bool hasPrimedContext = false;
+                const char *refreshReason =
+                    effectiveLateChildSkillId == 30010183
+                        ? "B22630-late-child-up"
+                        : (effectiveLateChildSkillId == 30010184
+                               ? "B22630-late-child-side"
+                               : "B22630-late-child-glide");
                 if (thisPtr)
                 {
                     hasPrimedContext =
@@ -15893,13 +13789,13 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                     HasRecentMountedDemonJumpIntent(effectiveMountItemId, 250);
                 bool syntheticSpecialMoveSent = false;
                 DWORD syntheticSpecialMoveTick = 0;
-                if (afterCurrentSkillId == 30010183 &&
+                if (effectiveLateChildSkillId == 30010183 &&
                     !hadMatchingRecentChildCache &&
                     hasRecentIntentAfterArm)
                 {
                     syntheticSpecialMoveSent =
                         SendMountedDemonJumpSyntheticSpecialMovePacket(
-                            afterCurrentSkillId,
+                            effectiveLateChildSkillId,
                             1,
                             &syntheticSpecialMoveTick);
                 }
@@ -15908,19 +13804,14 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
                         &s_mountedDemonJumpContextInputLateIntentLogBudget) >= 0)
                 {
                     WriteLogFmt(
-                        "[MountDemonJumpLate] B22630 child observed without fresh intent mount=%d root=%d current=%d result=%u a2=%u a3=0x%08X reason=%s cached=%d refreshMatch=%d -> arm intent=%d prime=%d primedRoot=%d primedCurrent=%d synth93=%d tick=%u",
+                        "[MountDemonJumpLate] B22630 child observed without fresh intent mount=%d root=%d current=%d result=%u a2=%u a3=0x%08X reason=%s -> arm intent=%d prime=%d primedRoot=%d primedCurrent=%d synth93=%d tick=%u",
                         effectiveMountItemId,
                         afterRootSkillId,
-                        afterCurrentSkillId,
+                        effectiveLateChildSkillId,
                         result,
                         a2,
                         a3,
                         refreshReason,
-                        recentChildSkillId,
-                        shouldForceRefreshMatchingUpChild ||
-                                shouldForceRefreshMatchingSideChild
-                            ? 1
-                            : 0,
                         hasRecentIntentAfterArm ? 1 : 0,
                         hasPrimedContext ? 1 : 0,
                         hasPrimedContext ? primedRootSkillId : 0,
@@ -15971,15 +13862,38 @@ static UINT __fastcall hkMountedDemonJumpContextInputB22630(
         static LONG s_mountedDemonJumpContextInputLeaveLogBudget = 96;
         if (InterlockedDecrement(&s_mountedDemonJumpContextInputLeaveLogBudget) >= 0)
         {
+            BYTE gateMode = 0;
+            BYTE downLatch = 0;
+            BYTE upLatch = 0;
+            const uintptr_t userLocalAddr =
+                reinterpret_cast<uintptr_t>(thisPtr);
+            if (userLocalAddr)
+            {
+                __try
+                {
+                    gateMode =
+                        *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
+                    downLatch =
+                        *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
+                    upLatch =
+                        *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    gateMode = 0;
+                    downLatch = 0;
+                    upLatch = 0;
+                }
+            }
             WriteLogFmt(
                 "[MountDemonJumpLate] B22630 leave result=%u mount=%d root=%d current=%d mode=%u down=%u up=%u",
                 result,
                 effectiveMountItemId > 0 ? effectiveMountItemId : mountItemId,
                 afterRootSkillId,
                 afterCurrentSkillId,
-                static_cast<unsigned int>(afterGateMode),
-                static_cast<unsigned int>(afterDownLatch),
-                static_cast<unsigned int>(afterUpLatch));
+                static_cast<unsigned int>(gateMode),
+                static_cast<unsigned int>(downLatch),
+                static_cast<unsigned int>(upLatch));
         }
     }
     return result;
@@ -16339,57 +14253,6 @@ static bool TryClearMountedDemonJumpLateLocalLockState(
         return false;
     }
 
-    if (effectiveChildSkillId == 30010183 &&
-        !HasFreshMountedRuntimeSkillNativeReleaseRaw(
-            MountedRuntimeSkillKind_DemonJump,
-            30010183,
-            mountItemId,
-            650))
-    {
-        static LONG s_mountedDemonJumpLateLocalLockSkipUpPreReleaseLogBudget =
-            48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpLateLocalLockSkipUpPreReleaseLogBudget) >= 0)
-        {
-            int liveRootSkillId = 0;
-            int liveCurrentSkillId = 0;
-            const bool hasLiveContext =
-                TryReadMountedDemonJumpContextState(
-                    &liveRootSkillId,
-                    &liveCurrentSkillId,
-                    nullptr);
-            void *userLocal = nullptr;
-            MountedDemonJumpUserGateSnapshot liveGate = {};
-            const bool hasLiveGate =
-                TryReadCurrentUserLocalPtr(&userLocal) &&
-                userLocal &&
-                TryReadMountedDemonJumpUserGateSnapshot(
-                    userLocal,
-                    &liveGate) &&
-                liveGate.valid;
-            WriteLogFmt(
-                "[MountDemonJumpLate] skip local lock clear before up release reason=%s caller=0x%08X mount=%d root=%d current=%d child=%d liveRoot=%d liveCurrent=%d liveGate=%u/%u/%u",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                rootSkillId,
-                currentSkillId,
-                effectiveChildSkillId,
-                hasLiveContext ? liveRootSkillId : 0,
-                hasLiveContext ? liveCurrentSkillId : 0,
-                hasLiveGate
-                    ? static_cast<unsigned int>(liveGate.gateMode)
-                    : 0,
-                hasLiveGate
-                    ? static_cast<unsigned int>(liveGate.downLatch)
-                    : 0,
-                hasLiveGate
-                    ? static_cast<unsigned int>(liveGate.upLatch)
-                    : 0);
-        }
-        return false;
-    }
-
     MountedDemonJumpLateLocalStateSnapshot beforeState = {};
     if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
             thisPtr,
@@ -16476,9 +14339,11 @@ static bool TryClearMountedDemonJumpLateLocalLockState(
     return true;
 }
 
-static bool TryClearMountedDemonJumpTailLocalGateState(
+static bool TryClearMountedDemonJumpResidualLandingState(
     void *thisPtr,
     int mountItemId,
+    int rootSkillId,
+    int currentSkillId,
     const char *reasonTag,
     DWORD callerRet)
 {
@@ -16487,6 +14352,250 @@ static bool TryClearMountedDemonJumpTailLocalGateState(
         ResolveMountedRuntimeSkillIdForKind(
             MountedRuntimeSkillKind_DemonJump,
             mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    const int effectiveChildSkillId =
+        ResolveMountedDemonJumpLateEffectiveChildSkillId(
+            mountItemId,
+            rootSkillId,
+            currentSkillId);
+    if (!IsMountedDemonJumpRuntimeChildSkillId(effectiveChildSkillId))
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot beforeLocalState = {};
+    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &beforeLocalState) ||
+        !beforeLocalState.valid)
+    {
+        return false;
+    }
+
+    void *userLocal = nullptr;
+    MountedDemonJumpUserGateSnapshot beforeGate = {};
+    const bool hasBeforeGate =
+        TryReadCurrentUserLocalPtr(&userLocal) &&
+        userLocal &&
+        TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &beforeGate) &&
+        beforeGate.valid;
+
+    const bool shouldClearUserGate =
+        hasBeforeGate &&
+        (beforeGate.gateMode != 0 ||
+         beforeGate.downLatch != 0 ||
+         beforeGate.upLatch != 0);
+    const bool shouldClear5D7C = beforeLocalState.state5D7C != 0;
+    const bool shouldClear5F2C = beforeLocalState.state5F2C != 0;
+    const bool shouldClearPrime5BB0 = beforeLocalState.state5BB0 != 0;
+    const bool shouldClearLocalGate =
+        beforeLocalState.state5E84 != 0 ||
+        beforeLocalState.state5E85 != 0 ||
+        beforeLocalState.state5EE4 != 0;
+    const bool shouldClearLocalSlot = beforeLocalState.state5E8C != 0;
+    if (!shouldClearUserGate &&
+        !shouldClear5D7C &&
+        !shouldClear5F2C &&
+        !shouldClearPrime5BB0 &&
+        !shouldClearLocalGate &&
+        !shouldClearLocalSlot)
+    {
+        return false;
+    }
+
+    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
+    const uintptr_t userLocalAddr = reinterpret_cast<uintptr_t>(userLocal);
+    if ((shouldClearUserGate &&
+         (SafeIsBadWritePtr(
+              reinterpret_cast<void *>(userLocalAddr + 24292),
+              sizeof(BYTE)) ||
+          SafeIsBadWritePtr(
+              reinterpret_cast<void *>(userLocalAddr + 24196),
+              sizeof(BYTE)) ||
+          SafeIsBadWritePtr(
+              reinterpret_cast<void *>(userLocalAddr + 24197),
+              sizeof(BYTE)))) ||
+        (shouldClear5D7C &&
+         SafeIsBadWritePtr(
+             reinterpret_cast<void *>(thisValue + 0x5D7C),
+             sizeof(DWORD))) ||
+        (shouldClear5F2C &&
+         SafeIsBadWritePtr(
+             reinterpret_cast<void *>(thisValue + 0x5F2C),
+             sizeof(DWORD))) ||
+        (shouldClearPrime5BB0 &&
+         SafeIsBadWritePtr(
+             reinterpret_cast<void *>(thisValue + 0x5BB0),
+             sizeof(DWORD))) ||
+        (shouldClearLocalGate &&
+         (SafeIsBadWritePtr(
+              reinterpret_cast<void *>(thisValue + 0x5E84),
+              sizeof(BYTE)) ||
+          SafeIsBadWritePtr(
+              reinterpret_cast<void *>(thisValue + 0x5E85),
+              sizeof(BYTE)) ||
+          SafeIsBadWritePtr(
+              reinterpret_cast<void *>(thisValue + 0x5EE4),
+              sizeof(BYTE)))) ||
+        (shouldClearLocalSlot &&
+         SafeIsBadWritePtr(
+             reinterpret_cast<void *>(thisValue + 0x5E8C),
+             sizeof(DWORD))))
+    {
+        return false;
+    }
+
+    __try
+    {
+        if (shouldClearUserGate)
+        {
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24292) = 0;
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24196) = 0;
+            *reinterpret_cast<BYTE *>(userLocalAddr + 24197) = 0;
+        }
+        if (shouldClear5D7C)
+        {
+            *reinterpret_cast<int *>(thisValue + 0x5D7C) = 0;
+        }
+        if (shouldClear5F2C)
+        {
+            *reinterpret_cast<int *>(thisValue + 0x5F2C) = 0;
+        }
+        if (shouldClearPrime5BB0)
+        {
+            *reinterpret_cast<int *>(thisValue + 0x5BB0) = 0;
+        }
+        if (shouldClearLocalGate)
+        {
+            *reinterpret_cast<BYTE *>(thisValue + 0x5E84) = 0;
+            *reinterpret_cast<BYTE *>(thisValue + 0x5E85) = 0;
+            *reinterpret_cast<BYTE *>(thisValue + 0x5EE4) = 0;
+        }
+        if (shouldClearLocalSlot)
+        {
+            *reinterpret_cast<int *>(thisValue + 0x5E8C) = 0;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+
+    MountedDemonJumpLateLocalStateSnapshot afterLocalState = {};
+    const bool hasAfterLocalState =
+        TryReadMountedDemonJumpLateLocalStateSnapshot(
+            thisPtr,
+            &afterLocalState) &&
+        afterLocalState.valid;
+    MountedDemonJumpUserGateSnapshot afterGate = {};
+    const bool hasAfterGate =
+        hasBeforeGate &&
+        TryReadMountedDemonJumpUserGateSnapshot(
+            userLocal,
+            &afterGate) &&
+        afterGate.valid;
+
+    static LONG s_mountedDemonJumpResidualLandingClearLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_mountedDemonJumpResidualLandingClearLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpLate] clear residual landing reason=%s caller=0x%08X mount=%d root=%d current=%d child=%d userGate=%u/%u/%u->%u/%u/%u prime5BB0=%d->%d localGate=%u/%u/%u->%u/%u/%u slot=0x%08X->0x%08X",
+            reasonTag ? reasonTag : "unknown",
+            callerRet,
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            effectiveChildSkillId,
+            hasBeforeGate ? static_cast<unsigned int>(beforeGate.gateMode) : 0,
+            hasBeforeGate ? static_cast<unsigned int>(beforeGate.downLatch) : 0,
+            hasBeforeGate ? static_cast<unsigned int>(beforeGate.upLatch) : 0,
+            hasAfterGate ? static_cast<unsigned int>(afterGate.gateMode) : 0,
+            hasAfterGate ? static_cast<unsigned int>(afterGate.downLatch) : 0,
+            hasAfterGate ? static_cast<unsigned int>(afterGate.upLatch) : 0,
+            beforeLocalState.state5BB0,
+            hasAfterLocalState ? afterLocalState.state5BB0 : 0,
+            static_cast<unsigned int>(beforeLocalState.state5E84),
+            static_cast<unsigned int>(beforeLocalState.state5E85),
+            static_cast<unsigned int>(beforeLocalState.state5EE4),
+            hasAfterLocalState
+                ? static_cast<unsigned int>(afterLocalState.state5E84)
+                : 0,
+            hasAfterLocalState
+                ? static_cast<unsigned int>(afterLocalState.state5E85)
+                : 0,
+            hasAfterLocalState
+                ? static_cast<unsigned int>(afterLocalState.state5EE4)
+                : 0,
+            beforeLocalState.state5E8C,
+            hasAfterLocalState ? afterLocalState.state5E8C : 0);
+        WriteMountedDemonJumpLateLocalStateLog(
+            "Residual",
+            "before-clear",
+            thisPtr,
+            beforeLocalState);
+        if (hasAfterLocalState)
+        {
+            WriteMountedDemonJumpLateLocalStateLog(
+                "Residual",
+                "after-clear",
+                thisPtr,
+                afterLocalState);
+        }
+    }
+
+    return true;
+}
+
+static bool ShouldForceMountedDemonJumpUpLookupPrime(
+    int mountItemId,
+    int rootSkillId,
+    int currentSkillId,
+    bool hasRecentIntent)
+{
+    if (mountItemId <= 0 ||
+        !hasRecentIntent ||
+        ResolveMountedRuntimeSkillIdForKind(
+            MountedRuntimeSkillKind_DemonJump,
+            mountItemId) != 30010110)
+    {
+        return false;
+    }
+
+    // Latest mounted-up trace (2026-05-06, export-20260506-072846.csv,
+    // SHA-256 6016F2C907F37A6C8681F0AC2F8F107603D74CA8C551A868F38D5359FC939E45)
+    // shows AFB710 entered with a fresh mounted demon intent but never wrote
+    // [this+5BB0], so AFB789 still read 0 and the native flow fell straight
+    // into the short lookup / effect-only fallback at AFB802. At this stage
+    // the mounted context can still be root-only, proxy, or even not yet
+    // populated, so do not hard-require current=30010183 here.
+    return rootSkillId == 30010110 ||
+           currentSkillId == 0 ||
+           currentSkillId == 30010110 ||
+           IsMountedDemonJumpRuntimeChildSkillId(currentSkillId) ||
+           IsMountedDemonJumpRuntimeProxySkillId(currentSkillId);
+}
+
+static bool TryArmMountedDemonJumpUpLookupPrimeBit(
+    void *thisPtr,
+    int mountItemId,
+    int rootSkillId,
+    int currentSkillId,
+    bool hasRecentIntent,
+    const char *reasonTag,
+    DWORD callerRet)
+{
+    if (!thisPtr ||
+        !ShouldForceMountedDemonJumpUpLookupPrime(
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            hasRecentIntent))
     {
         return false;
     }
@@ -16500,198 +14609,25 @@ static bool TryClearMountedDemonJumpTailLocalGateState(
         return false;
     }
 
-    const bool shouldClearLocalGate =
-        beforeState.state5E84 != 0 ||
-        beforeState.state5E85 != 0 ||
-        beforeState.state5EE4 != 0;
-    if (!shouldClearLocalGate ||
-        beforeState.state5D7C != 0 ||
-        beforeState.state5F2C != 0 ||
-        beforeState.state5E8C != 0)
+    if (beforeState.state5BB0 != 0)
     {
         return false;
     }
 
     const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
     if (SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x5E84),
-            sizeof(BYTE)) ||
-        SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x5E85),
-            sizeof(BYTE)) ||
-        SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x5EE4),
-            sizeof(BYTE)))
-    {
-        return false;
-    }
-
-    __try
-    {
-        *reinterpret_cast<BYTE *>(thisValue + 0x5E84) = 0;
-        *reinterpret_cast<BYTE *>(thisValue + 0x5E85) = 0;
-        *reinterpret_cast<BYTE *>(thisValue + 0x5EE4) = 0;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-
-    MountedDemonJumpLateLocalStateSnapshot afterState = {};
-    const bool hasAfterState =
-        TryReadMountedDemonJumpLateLocalStateSnapshot(
-            thisPtr,
-            &afterState) &&
-        afterState.valid;
-
-    static LONG s_mountedDemonJumpTailLocalGateClearLogBudget = 48;
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpTailLocalGateClearLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpTailGate] clear reason=%s caller=0x%08X mount=%d localGate=%u/%u/%u->%u/%u/%u slot=0x%08X->0x%08X 5BB0=%d->%d",
-            reasonTag ? reasonTag : "unknown",
-            callerRet,
-            mountItemId,
-            static_cast<unsigned int>(beforeState.state5E84),
-            static_cast<unsigned int>(beforeState.state5E85),
-            static_cast<unsigned int>(beforeState.state5EE4),
-            hasAfterState
-                ? static_cast<unsigned int>(afterState.state5E84)
-                : 0,
-            hasAfterState
-                ? static_cast<unsigned int>(afterState.state5E85)
-                : 0,
-            hasAfterState
-                ? static_cast<unsigned int>(afterState.state5EE4)
-                : 0,
-            beforeState.state5E8C,
-            hasAfterState ? afterState.state5E8C : 0,
-            beforeState.state5BB0,
-            hasAfterState ? afterState.state5BB0 : 0);
-        WriteMountedDemonJumpLateLocalStateLog(
-            "TailGate",
-            "before-clear",
-            thisPtr,
-            beforeState);
-        if (hasAfterState)
-        {
-            WriteMountedDemonJumpLateLocalStateLog(
-                "TailGate",
-                "after-clear",
-                thisPtr,
-                afterState);
-        }
-    }
-
-    return true;
-}
-
-static bool TryForceClearMountedDemonJumpPostPacketTailSlotState(
-    void *thisPtr,
-    int mountItemId,
-    int releasedSkillId,
-    const char *reasonTag,
-    DWORD callerRet,
-    const MountedDemonJumpLateLocalStateSnapshot *beforeStateHint = nullptr)
-{
-    if (!thisPtr ||
-        mountItemId <= 0 ||
-        releasedSkillId != 30010183 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110)
-    {
-        return false;
-    }
-
-    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
-    if (beforeStateHint && beforeStateHint->valid)
-    {
-        beforeState = *beforeStateHint;
-    }
-    else if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
-                 thisPtr,
-                 &beforeState) ||
-             !beforeState.valid)
-    {
-        return false;
-    }
-
-    // Latest v22.29 logs show the remaining post-landing "can't move" tail on
-    // mounted 30010183 after the packet phase is already finalized:
-    // root/current is already logged as 0/0 by the caller, gate=0/0/0,
-    // 5D7C=0, 5F2C=0, but slot(5E8C) still holds a native child handle until
-    // the later 433FEC tail cleanup. Keep this helper local-state driven here:
-    // if packet-finalize already reached the clean local window, do not re-block
-    // on another context read that can lag one native frame behind the caller.
-    if (beforeState.state5D7C != 0 ||
-        beforeState.state5F2C != 0 ||
-        beforeState.state5E84 != 0 ||
-        beforeState.state5E85 != 0 ||
-        beforeState.state5EE4 != 0 ||
-        beforeState.state5E8C == 0)
-    {
-        static LONG s_mountedDemonJumpPostPacketTailSlotSkipLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpPostPacketTailSlotSkipLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpPostTail] skip reason=%s caller=0x%08X mount=%d released=%d slot=0x%08X gate=%u/%u/%u 5D7C=%d 5F2C=%d",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                releasedSkillId,
-                beforeState.state5E8C,
-                static_cast<unsigned int>(beforeState.state5E84),
-                static_cast<unsigned int>(beforeState.state5E85),
-                static_cast<unsigned int>(beforeState.state5EE4),
-                beforeState.state5D7C,
-                beforeState.state5F2C);
-        }
-        return false;
-    }
-
-    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
-    if (SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x5E8C),
+            reinterpret_cast<void *>(thisValue + 0x5BB0),
             sizeof(DWORD)))
     {
-        static LONG s_mountedDemonJumpPostPacketTailSlotBadWriteLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpPostPacketTailSlotBadWriteLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpPostTail] bad-write reason=%s caller=0x%08X mount=%d released=%d addr=0x%08X slot=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                releasedSkillId,
-                static_cast<DWORD>(thisValue + 0x5E8C),
-                beforeState.state5E8C);
-        }
         return false;
     }
 
     __try
     {
-        *reinterpret_cast<int *>(thisValue + 0x5E8C) = 0;
+        *reinterpret_cast<int *>(thisValue + 0x5BB0) = 1;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        static LONG s_mountedDemonJumpPostPacketTailSlotExceptionLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpPostPacketTailSlotExceptionLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpPostTail] exception reason=%s caller=0x%08X mount=%d released=%d addr=0x%08X code=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                releasedSkillId,
-                static_cast<DWORD>(thisValue + 0x5E8C),
-                GetExceptionCode());
-        }
         return false;
     }
 
@@ -16702,16 +14638,19 @@ static bool TryForceClearMountedDemonJumpPostPacketTailSlotState(
             &afterState) &&
         afterState.valid;
 
-    static LONG s_mountedDemonJumpPostPacketTailSlotClearLogBudget = 32;
+    static LONG s_mountedDemonJumpUpLookupPrimeBitLogBudget = 32;
     if (InterlockedDecrement(
-            &s_mountedDemonJumpPostPacketTailSlotClearLogBudget) >= 0)
+            &s_mountedDemonJumpUpLookupPrimeBitLogBudget) >= 0)
     {
         WriteLogFmt(
-            "[MountDemonJumpPostTail] clear reason=%s caller=0x%08X mount=%d released=%d slot=0x%08X->0x%08X gate=%u/%u/%u->%u/%u/%u",
+            "[MountDemonJumpPrime] arm 5BB0 reason=%s caller=0x%08X mount=%d root=%d current=%d 5BB0=%d->%d slot=0x%08X->0x%08X gate=%u/%u/%u->%u/%u/%u",
             reasonTag ? reasonTag : "unknown",
             callerRet,
             mountItemId,
-            releasedSkillId,
+            rootSkillId,
+            currentSkillId,
+            beforeState.state5BB0,
+            hasAfterState ? afterState.state5BB0 : 0,
             beforeState.state5E8C,
             hasAfterState ? afterState.state5E8C : 0,
             static_cast<unsigned int>(beforeState.state5E84),
@@ -16726,499 +14665,6 @@ static bool TryForceClearMountedDemonJumpPostPacketTailSlotState(
             hasAfterState
                 ? static_cast<unsigned int>(afterState.state5EE4)
                 : 0);
-        WriteMountedDemonJumpLateLocalStateLog(
-            "PostTail",
-            "before-clear",
-            thisPtr,
-            beforeState);
-        if (hasAfterState)
-        {
-            WriteMountedDemonJumpLateLocalStateLog(
-                "PostTail",
-                "after-clear",
-                thisPtr,
-                afterState);
-        }
-    }
-
-    return true;
-}
-
-static bool TryForceFinalizeMountedDemonJumpNativeActionTailState(
-    void *thisPtr,
-    int mountItemId,
-    const char *reasonTag,
-    DWORD callerRet)
-{
-    if (!thisPtr ||
-        mountItemId <= 0 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110)
-    {
-        return false;
-    }
-
-    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
-    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
-            thisPtr,
-            &beforeState) ||
-        !beforeState.valid)
-    {
-        static LONG s_mountedDemonJumpNativeTailSkipSnapshotLogBudget = 16;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailSkipSnapshotLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=snapshot",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                (DWORD)(uintptr_t)thisPtr);
-        }
-        return false;
-    }
-
-    if ((beforeState.state4A4 != 6 &&
-         beforeState.state4A4 != 7) ||
-        beforeState.state5D7C != 0 ||
-        beforeState.state5F2C != 0 ||
-        beforeState.state5E84 != 0 ||
-        beforeState.state5E85 != 0 ||
-        beforeState.state5EE4 != 0 ||
-        beforeState.state5E8C != 0)
-    {
-        static LONG s_mountedDemonJumpNativeTailSkipStateLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailSkipStateLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=state 4A4=0x%08X lock=%d/%d gate=%u/%u/%u slot=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                (DWORD)(uintptr_t)thisPtr,
-                static_cast<unsigned int>(beforeState.state4A4),
-                beforeState.state5D7C,
-                beforeState.state5F2C,
-                static_cast<unsigned int>(beforeState.state5E84),
-                static_cast<unsigned int>(beforeState.state5E85),
-                static_cast<unsigned int>(beforeState.state5EE4),
-                beforeState.state5E8C);
-        }
-        return false;
-    }
-
-    tMountedDemonJumpLateStateGetterFn afbStateGetter =
-        oMountedDemonJumpAfbState42E170
-            ? oMountedDemonJumpAfbState42E170
-            : reinterpret_cast<tMountedDemonJumpLateStateGetterFn>(
-                  ADDR_MountedDemonJumpAfbState42E170);
-    tMountedDemonJumpNativeActionResetFn nativeActionResetFn =
-        reinterpret_cast<tMountedDemonJumpNativeActionResetFn>(
-            ADDR_MountedDemonJumpNativeActionReset47F1C0);
-    if (!afbStateGetter || !nativeActionResetFn)
-    {
-        static LONG s_mountedDemonJumpNativeTailSkipEntryLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailSkipEntryLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=entry getter=0x%08X reset=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                (DWORD)(uintptr_t)thisPtr,
-                (DWORD)(uintptr_t)afbStateGetter,
-                (DWORD)(uintptr_t)nativeActionResetFn);
-        }
-        return false;
-    }
-
-    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
-    const uintptr_t nativeActionThisValue = thisValue + 144;
-    if (SafeIsBadReadPtr(
-            reinterpret_cast<void *>(nativeActionThisValue),
-            sizeof(DWORD)) ||
-        SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x494),
-            sizeof(DWORD)) ||
-        SafeIsBadWritePtr(
-            reinterpret_cast<void *>(thisValue + 0x4A8),
-            sizeof(DWORD)))
-    {
-        static LONG s_mountedDemonJumpNativeTailSkipPtrLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailSkipPtrLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=ptrcheck native=0x%08X state1172=0x%08X state1192=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                (DWORD)(uintptr_t)thisPtr,
-                static_cast<DWORD>(nativeActionThisValue),
-                static_cast<DWORD>(thisValue + 0x494),
-                static_cast<DWORD>(thisValue + 0x4A8));
-        }
-        return false;
-    }
-
-    int nativeActionStateBefore = 0;
-    int state1172Before = 0;
-    int state1192Before = 0;
-    __try
-    {
-        nativeActionStateBefore =
-            afbStateGetter(reinterpret_cast<void *>(nativeActionThisValue));
-        state1172Before =
-            *reinterpret_cast<int *>(thisValue + 0x494);
-        state1192Before =
-            *reinterpret_cast<int *>(thisValue + 0x4A8);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-
-    const bool allowExactMounted353TailReset =
-        nativeActionStateBefore == 353 &&
-        state1172Before == -1 &&
-        state1192Before == 353;
-    const bool allowExactMounted354TailReset =
-        nativeActionStateBefore == 354 &&
-        state1172Before == -1 &&
-        state1192Before == 354;
-    const bool allowExactMounted362TailReset =
-        nativeActionStateBefore == 362 &&
-        state1172Before == -1 &&
-        state1192Before == 362;
-    if (nativeActionStateBefore > -1 &&
-        !allowExactMounted353TailReset &&
-        !allowExactMounted354TailReset &&
-        !allowExactMounted362TailReset)
-    {
-        static LONG s_mountedDemonJumpNativeTailSkipAfbLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailSkipAfbLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X stage=afb afb=%d state1172=%d state1192=%d 4A4=0x%08X exact353=%d exact354=%d exact362=%d",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                (DWORD)(uintptr_t)thisPtr,
-                nativeActionStateBefore,
-                state1172Before,
-                state1192Before,
-                static_cast<unsigned int>(beforeState.state4A4),
-                allowExactMounted353TailReset ? 1 : 0,
-                allowExactMounted354TailReset ? 1 : 0,
-                allowExactMounted362TailReset ? 1 : 0);
-        }
-        return false;
-    }
-
-    __try
-    {
-        *reinterpret_cast<int *>(thisValue + 0x494) = -1;
-        *reinterpret_cast<int *>(thisValue + 0x4A8) = -1;
-        nativeActionResetFn(
-            reinterpret_cast<char *>(nativeActionThisValue),
-            1);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        static LONG s_mountedDemonJumpNativeTailExceptionLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpNativeTailExceptionLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpNativeTail] exception reason=%s caller=0x%08X mount=%d this=0x%08X code=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                static_cast<DWORD>(thisValue),
-                GetExceptionCode());
-        }
-        return false;
-    }
-
-    MountedDemonJumpLateLocalStateSnapshot afterState = {};
-    const bool hasAfterState =
-        TryReadMountedDemonJumpLateLocalStateSnapshot(
-            thisPtr,
-            &afterState) &&
-        afterState.valid;
-    int nativeActionStateAfter = 0;
-    int state1172After = 0;
-    int state1192After = 0;
-    bool hasAfterNativeState = false;
-    __try
-    {
-        nativeActionStateAfter =
-            afbStateGetter(reinterpret_cast<void *>(nativeActionThisValue));
-        state1172After =
-            *reinterpret_cast<int *>(thisValue + 0x494);
-        state1192After =
-            *reinterpret_cast<int *>(thisValue + 0x4A8);
-        hasAfterNativeState = true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        hasAfterNativeState = false;
-    }
-
-    static LONG s_mountedDemonJumpNativeTailResetLogBudget = 24;
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpNativeTailResetLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpNativeTail] reset reason=%s caller=0x%08X mount=%d this=0x%08X mode=%s afb=%d->%d state1172=%d->%d state1192=%d->%d 4A4=0x%08X->0x%08X",
-            reasonTag ? reasonTag : "unknown",
-            callerRet,
-            mountItemId,
-            static_cast<DWORD>(thisValue),
-            allowExactMounted353TailReset
-                ? "exact353"
-                : (allowExactMounted354TailReset
-                       ? "exact354"
-                       : (allowExactMounted362TailReset
-                              ? "exact362"
-                              : "idle")),
-            nativeActionStateBefore,
-            hasAfterNativeState ? nativeActionStateAfter : 0,
-            state1172Before,
-            hasAfterNativeState ? state1172After : 0,
-            state1192Before,
-            hasAfterNativeState ? state1192After : 0,
-            static_cast<unsigned int>(beforeState.state4A4),
-            hasAfterState
-                ? static_cast<unsigned int>(afterState.state4A4)
-                : 0U);
-        WriteMountedDemonJumpLateLocalStateLog(
-            "NativeTail",
-            "before-reset",
-            thisPtr,
-            beforeState);
-        if (hasAfterState)
-        {
-            WriteMountedDemonJumpLateLocalStateLog(
-                "NativeTail",
-                "after-reset",
-                thisPtr,
-                afterState);
-        }
-    }
-
-    return true;
-}
-
-static bool TryClearMountedDemonJump35121005CarrierTailState(
-    void *thisPtr,
-    int mountItemId,
-    const char *reasonTag,
-    DWORD callerRet)
-{
-    if (!thisPtr ||
-        mountItemId <= 0 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110)
-    {
-        return false;
-    }
-
-    MountedDemonJumpLateLocalStateSnapshot beforeState = {};
-    if (!TryReadMountedDemonJumpLateLocalStateSnapshot(
-            thisPtr,
-            &beforeState) ||
-        !beforeState.valid)
-    {
-        return false;
-    }
-
-    if (beforeState.state5D7C != 0 ||
-        beforeState.state5F2C != 0 ||
-        beforeState.state5E84 != 0 ||
-        beforeState.state5E85 != 0 ||
-        beforeState.state5EE4 != 0)
-    {
-        return false;
-    }
-
-    const uintptr_t thisValue = reinterpret_cast<uintptr_t>(thisPtr);
-    const uintptr_t carrierStateAddr = thisValue + 4989 * sizeof(DWORD);
-    if (SafeIsBadReadPtr(
-            reinterpret_cast<void *>(carrierStateAddr),
-            7 * sizeof(DWORD)))
-    {
-        return false;
-    }
-
-    tMountedDemonJumpLateStateGetterFn afbStateGetter =
-        oMountedDemonJumpAfbState42E170
-            ? oMountedDemonJumpAfbState42E170
-            : reinterpret_cast<tMountedDemonJumpLateStateGetterFn>(
-                  ADDR_MountedDemonJumpAfbState42E170);
-    tMountedDemonJumpCarrierResetFn carrierResetFn =
-        reinterpret_cast<tMountedDemonJumpCarrierResetFn>(
-            ADDR_MountedDemonJumpCarrierResetB22AE0);
-    if (!afbStateGetter || !carrierResetFn)
-    {
-        return false;
-    }
-
-    int nativeActionStateBefore = 0;
-    int state1192Before = 0;
-    int carrier4989Before = 0;
-    int carrier4990Before = 0;
-    int carrier4991Before = 0;
-    int carrier4992Before = 0;
-    int carrier4993Before = 0;
-    int carrier4994Before = 0;
-    int carrier4995Before = 0;
-    __try
-    {
-        nativeActionStateBefore =
-            afbStateGetter(reinterpret_cast<void *>(thisValue + 144));
-        state1192Before =
-            *reinterpret_cast<int *>(thisValue + 0x4A8);
-        carrier4989Before =
-            *reinterpret_cast<int *>(thisValue + 4989 * sizeof(DWORD));
-        carrier4990Before =
-            *reinterpret_cast<int *>(thisValue + 4990 * sizeof(DWORD));
-        carrier4991Before =
-            *reinterpret_cast<int *>(thisValue + 4991 * sizeof(DWORD));
-        carrier4992Before =
-            *reinterpret_cast<int *>(thisValue + 4992 * sizeof(DWORD));
-        carrier4993Before =
-            *reinterpret_cast<int *>(thisValue + 4993 * sizeof(DWORD));
-        carrier4994Before =
-            *reinterpret_cast<int *>(thisValue + 4994 * sizeof(DWORD));
-        carrier4995Before =
-            *reinterpret_cast<int *>(thisValue + 4995 * sizeof(DWORD));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-
-    if (nativeActionStateBefore != 353 ||
-        state1192Before != 353 ||
-        carrier4989Before != 35121005 ||
-        carrier4993Before != 0)
-    {
-        static LONG s_mountedDemonJumpCarrierTailSkipLogBudget = 24;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpCarrierTailSkipLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpCarrierTail] skip reason=%s caller=0x%08X mount=%d this=0x%08X afb=%d state1192=%d carrier=%d/%d/%d/%d/%d/%d/%d",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                static_cast<DWORD>(thisValue),
-                nativeActionStateBefore,
-                state1192Before,
-                carrier4989Before,
-                carrier4990Before,
-                carrier4991Before,
-                carrier4992Before,
-                carrier4993Before,
-                carrier4994Before,
-                carrier4995Before);
-        }
-        return false;
-    }
-
-    __try
-    {
-        carrierResetFn(reinterpret_cast<int *>(thisPtr));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        static LONG s_mountedDemonJumpCarrierTailExceptionLogBudget = 12;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpCarrierTailExceptionLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpCarrierTail] exception reason=%s caller=0x%08X mount=%d this=0x%08X code=0x%08X",
-                reasonTag ? reasonTag : "unknown",
-                callerRet,
-                mountItemId,
-                static_cast<DWORD>(thisValue),
-                GetExceptionCode());
-        }
-        return false;
-    }
-
-    int carrier4989After = 0;
-    int carrier4990After = 0;
-    int carrier4991After = 0;
-    int carrier4992After = 0;
-    int carrier4993After = 0;
-    int carrier4994After = 0;
-    int carrier4995After = 0;
-    __try
-    {
-        carrier4989After =
-            *reinterpret_cast<int *>(thisValue + 4989 * sizeof(DWORD));
-        carrier4990After =
-            *reinterpret_cast<int *>(thisValue + 4990 * sizeof(DWORD));
-        carrier4991After =
-            *reinterpret_cast<int *>(thisValue + 4991 * sizeof(DWORD));
-        carrier4992After =
-            *reinterpret_cast<int *>(thisValue + 4992 * sizeof(DWORD));
-        carrier4993After =
-            *reinterpret_cast<int *>(thisValue + 4993 * sizeof(DWORD));
-        carrier4994After =
-            *reinterpret_cast<int *>(thisValue + 4994 * sizeof(DWORD));
-        carrier4995After =
-            *reinterpret_cast<int *>(thisValue + 4995 * sizeof(DWORD));
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        carrier4989After = 0;
-        carrier4990After = 0;
-        carrier4991After = 0;
-        carrier4992After = 0;
-        carrier4993After = 0;
-        carrier4994After = 0;
-        carrier4995After = 0;
-    }
-
-    static LONG s_mountedDemonJumpCarrierTailClearLogBudget = 24;
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpCarrierTailClearLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpCarrierTail] clear reason=%s caller=0x%08X mount=%d this=0x%08X afb=%d state1192=%d carrier=%d/%d/%d/%d/%d/%d/%d -> %d/%d/%d/%d/%d/%d/%d",
-            reasonTag ? reasonTag : "unknown",
-            callerRet,
-            mountItemId,
-            static_cast<DWORD>(thisValue),
-            nativeActionStateBefore,
-            state1192Before,
-            carrier4989Before,
-            carrier4990Before,
-            carrier4991Before,
-            carrier4992Before,
-            carrier4993Before,
-            carrier4994Before,
-            carrier4995Before,
-            carrier4989After,
-            carrier4990After,
-            carrier4991After,
-            carrier4992After,
-            carrier4993After,
-            carrier4994After,
-            carrier4995After);
-        WriteMountedDemonJumpLateLocalStateLog(
-            "CarrierTail",
-            "before-clear",
-            thisPtr,
-            beforeState);
     }
 
     return true;
@@ -17247,19 +14693,6 @@ static bool TryForceClearMountedDemonJumpDescendingUpState(
             rootSkillId,
             currentSkillId);
     if (effectiveChildSkillId != 30010183)
-    {
-        return false;
-    }
-
-    // v23.08 runtime evidence:
-    // recent-child cache can still hold 30010183 while the live context for the
-    // current trigger is only root/current=30010110/30010110. If we let the
-    // descending-up cleanup consume that cached child, B1DB10 clears the gate
-    // immediately after the first a2=18 step and the fresh up-jump never
-    // reaches the later B22630 child-observed stage. Keep this cleanup narrow
-    // to the real "stuck in up-child tail" case where the live context itself
-    // is already the up child.
-    if (currentSkillId != 30010183)
     {
         return false;
     }
@@ -17323,7 +14756,7 @@ static bool TryForceClearMountedDemonJumpDescendingUpState(
             &s_mountedDemonJumpDescendingUpClearLogBudget) >= 0)
     {
         WriteLogFmt(
-            "[MountDemonJumpDescending] clear reason=%s caller=0x%08X mount=%d root=%d current=%d gate=%u/%u/%u->%u/%u/%u context=%d/%d->%d/%d preserveTransient=1",
+            "[MountDemonJumpDescending] clear reason=%s caller=0x%08X mount=%d root=%d current=%d gate=%u/%u/%u->%u/%u/%u preserveContext=%d/%d preserveTransient=1",
             reasonTag ? reasonTag : "unknown",
             callerRet,
             mountItemId,
@@ -17335,8 +14768,6 @@ static bool TryForceClearMountedDemonJumpDescendingUpState(
             static_cast<unsigned int>(afterGate.gateMode),
             static_cast<unsigned int>(afterGate.downLatch),
             static_cast<unsigned int>(afterGate.upLatch),
-            rootSkillId,
-            currentSkillId,
             afterRootSkillId,
             afterCurrentSkillId);
         WriteMountedDemonJumpLateLocalStateLog(
@@ -17346,15 +14777,9 @@ static bool TryForceClearMountedDemonJumpDescendingUpState(
             beforeLocalState);
     }
 
-    if (clearedGateState)
-    {
-        TryForceClearMountedSoaringFlightActiveForMount(
-            mountItemId,
-            reasonTag ? reasonTag : "descending-up");
-    }
-
     return clearedGateState;
 }
+
 static bool TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
     void *thisPtr,
     int mountItemId,
@@ -17459,6 +14884,13 @@ static bool TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
         return false;
     }
 
+    TryClearMountedDemonJumpResidualLandingState(
+        thisPtr,
+        mountItemId,
+        beforeRootSkillId,
+        releasedSkillId,
+        reasonTag ? reasonTag : "B28A00-up-postpacket",
+        callerRet);
     ClearMountedDemonJumpTransientRuntimeState(
         mountItemId,
         reasonTag ? reasonTag : "B28A00-up-postpacket");
@@ -17497,38 +14929,6 @@ static bool TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
             "before-clear",
             thisPtr,
             beforeLocalState);
-    }
-
-    if (releasedSkillId == 30010183 ||
-        releasedSkillId == 30010186)
-    {
-        TryForceClearMountedSoaringFlightActiveForMount(
-            mountItemId,
-            reasonTag ? reasonTag : "B28A00-up-postpacket");
-    }
-
-    const bool clearedPostPacketTailSlot =
-        TryForceClearMountedDemonJumpPostPacketTailSlotState(
-        thisPtr,
-        mountItemId,
-        releasedSkillId,
-        reasonTag ? reasonTag : "B28A00-up-postpacket",
-        callerRet,
-        &beforeLocalState);
-
-    if (clearedPostPacketTailSlot &&
-        releasedSkillId == 30010183)
-    {
-        TryForceFinalizeMountedDemonJumpNativeActionTailState(
-            thisPtr,
-            mountItemId,
-            "B28A00-up-postpacket-native-action",
-            callerRet);
-        TryClearMountedDemonJump35121005CarrierTailState(
-            thisPtr,
-            mountItemId,
-            "B28A00-up-postpacket-carrier-tail",
-            callerRet);
     }
 
     return true;
@@ -17912,6 +15312,12 @@ static void __fastcall hkMountedDemonJumpMoveB1DB10(
 
     if (shouldLog)
     {
+        int afterRootSkillId = 0;
+        int afterCurrentSkillId = 0;
+        TryReadMountedDemonJumpContextState(
+            &afterRootSkillId,
+            &afterCurrentSkillId,
+            nullptr);
         int afterBranchState = 0;
         int afterHorizontalTarget = 0;
         int afterVerticalTarget = 0;
@@ -17930,18 +15336,23 @@ static void __fastcall hkMountedDemonJumpMoveB1DB10(
             TryReadMountedDemonJumpLateLocalStateSnapshot(
                 thisPtr,
                 &afterLocalState);
+        const bool hasRecentIntentAfter =
+            mountItemId > 0 &&
+            HasRecentMountedDemonJumpIntent(mountItemId, 120);
         static LONG s_mountedDemonJumpMoveB1DB10LeaveLogBudget = 64;
         if (InterlockedDecrement(&s_mountedDemonJumpMoveB1DB10LeaveLogBudget) >= 0)
         {
             WriteLogFmt(
-                "[MountDemonJumpLate] B1DB10 leave this=0x%08X a2=%d a3=0x%08X mount=%d recent=%d root=%d current=%d branch=%d->%d h=%d->%d v=%d->%d",
+                "[MountDemonJumpLate] B1DB10 leave this=0x%08X a2=%d a3=0x%08X mount=%d recent=%d root=%d/%d current=%d/%d branch=%d->%d h=%d->%d v=%d->%d",
                 (DWORD)(uintptr_t)thisPtr,
                 a2,
                 a3,
                 mountItemId,
-                hasRecentIntent ? 1 : 0,
+                hasRecentIntentAfter ? 1 : 0,
                 rootSkillId,
+                afterRootSkillId,
                 currentSkillId,
+                afterCurrentSkillId,
                 hasBeforeBranchState ? beforeBranchState : -1,
                 hasAfterBranchState ? afterBranchState : -1,
                 hasBeforeTargets ? beforeHorizontalTarget : -1,
@@ -17960,6 +15371,28 @@ static void __fastcall hkMountedDemonJumpMoveB1DB10(
 
         if (hasAfterLocalState &&
             afterLocalState.valid &&
+            !hasRecentIntentAfter &&
+            afterRootSkillId == 30010110 &&
+            (afterCurrentSkillId == 30010110 ||
+             IsMountedDemonJumpRuntimeChildSkillId(afterCurrentSkillId)) &&
+            (afterLocalState.state5D7C != 0 ||
+             afterLocalState.state5F2C != 0 ||
+             afterLocalState.state5E84 != 0 ||
+             afterLocalState.state5E85 != 0 ||
+             afterLocalState.state5EE4 != 0 ||
+             afterLocalState.state5E8C != 0))
+        {
+            TryClearMountedDemonJumpResidualLandingState(
+                thisPtr,
+                mountItemId,
+                afterRootSkillId,
+                afterCurrentSkillId,
+                "B1DB10-residual-landing",
+                (DWORD)(uintptr_t)_ReturnAddress());
+        }
+
+        if (hasAfterLocalState &&
+            afterLocalState.valid &&
             (afterLocalState.state5D7C != 0 ||
              afterLocalState.state5F2C != 0))
         {
@@ -17972,41 +15405,13 @@ static void __fastcall hkMountedDemonJumpMoveB1DB10(
                 (DWORD)(uintptr_t)_ReturnAddress());
         }
 
-        int liveRootSkillId = rootSkillId;
-        int liveCurrentSkillId = currentSkillId;
-        if (TryReadMountedDemonJumpContextState(
-                &liveRootSkillId,
-                &liveCurrentSkillId,
-                nullptr))
-        {
-            // The descending cleanup must track the live native context only.
-            // Using the effective context here lets the short recent-child cache
-            // masquerade as an already-active 30010183 child, which can clear
-            // the first mounted up-jump tail before the native chain finishes
-            // consuming it.
-        }
-
         TryForceClearMountedDemonJumpDescendingUpState(
             thisPtr,
             mountItemId,
-            liveRootSkillId,
-            liveCurrentSkillId,
+            rootSkillId,
+            currentSkillId,
             "B1DB10-descending-up",
             (DWORD)(uintptr_t)_ReturnAddress());
-        if (mountItemId > 0 &&
-            (liveCurrentSkillId == 30010184 ||
-             liveCurrentSkillId == 30010186))
-        {
-            TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
-                thisPtr,
-                mountItemId,
-                liveCurrentSkillId,
-                liveCurrentSkillId == 30010184
-                    ? "B1DB10-side-late-finalize"
-                    : "B1DB10-glide-late-finalize",
-                (DWORD)(uintptr_t)_ReturnAddress());
-        }
-
     }
 }
 
@@ -18123,26 +15528,6 @@ static void __fastcall hkMountedDemonJumpMoveB1C9E0(
                     afterLocalState);
             }
         }
-
-        int liveRootSkillId = rootSkillId;
-        int liveCurrentSkillId = currentSkillId;
-        if (TryReadMountedDemonJumpContextState(
-                &liveRootSkillId,
-                &liveCurrentSkillId,
-                nullptr) &&
-            mountItemId > 0 &&
-            (liveCurrentSkillId == 30010184 ||
-             liveCurrentSkillId == 30010186))
-        {
-            TryForceFinalizeMountedDemonJumpUpStateAfterPacket(
-                thisPtr,
-                mountItemId,
-                liveCurrentSkillId,
-                liveCurrentSkillId == 30010184
-                    ? "B1C9E0-side-late-finalize"
-                    : "B1C9E0-glide-late-finalize",
-                (DWORD)(uintptr_t)_ReturnAddress());
-        }
     }
 }
 
@@ -18165,30 +15550,6 @@ static const char *DescribeMountedDemonJumpAfbInnerCaller(
 {
     switch (callerRet)
     {
-    case 0x00433EAA:
-        return "433EAA-mounted-clear-pre";
-    case 0x00433FEC:
-        return "433FEC-mounted-clear-post";
-    case 0x00B2B14E:
-        return "B2B14E-post-root-enter";
-    case 0x00B28B36:
-        return "B28B36-postpacket-check-a";
-    case 0x00B28B84:
-        return "B28B84-postpacket-check-b";
-    case 0x00481E86:
-        return "481E86-motion-a";
-    case 0x00481E92:
-        return "481E92-motion-b";
-    case 0x00481EF6:
-        return "481EF6-motion-c";
-    case 0x00A9E86B:
-        return "A9E86B-action-a";
-    case 0x00A9C906:
-        return "A9C906-action-b";
-    case 0x006ADA59:
-        return "6ADA59-loop-a";
-    case 0x006ADA93:
-        return "6ADA93-loop-b";
     case 0x00AFB759:
         return "42E170";
     case 0x00AFB769:
@@ -18216,7 +15577,6 @@ static int __fastcall hkMountedDemonJumpAfbState42E170(
     int rootSkillId = 0;
     int currentSkillId = 0;
     bool hasRecentIntent = false;
-    const char *stage = DescribeMountedDemonJumpAfbInnerCaller(callerRet);
     if (ShouldObserveMountedDemonJumpLatePath(
             &mountItemId,
             &rootSkillId,
@@ -18230,33 +15590,13 @@ static int __fastcall hkMountedDemonJumpAfbState42E170(
             WriteLogFmt(
                 "[MountDemonJumpLateAfb] 42E170 caller=0x%08X stage=%s this=0x%08X result=%d mount=%d recent=%d root=%d current=%d",
                 callerRet,
-                stage,
+                DescribeMountedDemonJumpAfbInnerCaller(callerRet),
                 (DWORD)(uintptr_t)thisPtr,
                 result,
                 mountItemId,
                 hasRecentIntent ? 1 : 0,
                 rootSkillId,
                 currentSkillId);
-
-            if (callerRet == 0x00433EAA ||
-                callerRet == 0x00433FEC)
-            {
-                void *playerObj = nullptr;
-                MountedDemonJumpLateLocalStateSnapshot playerState = {};
-                if (TryReadMountedDemonJumpPrimePlayerObject(&playerObj) &&
-                    playerObj &&
-                    TryReadMountedDemonJumpLateLocalStateSnapshot(
-                        playerObj,
-                        &playerState) &&
-                    playerState.valid)
-                {
-                    WriteMountedDemonJumpLateLocalStateLog(
-                        "42E170",
-                        stage ? stage : "state",
-                        playerObj,
-                        playerState);
-                }
-            }
         }
     }
     return result;
@@ -18381,10 +15721,11 @@ static void *__fastcall hkMountedDemonJumpAfbLookup773500(
         if (!result &&
             callerRet == 0x00AFB802 &&
             a4 == 0x14 &&
-            mountItemId > 0 &&
-            hasRecentIntent &&
-            rootSkillId == 30010110 &&
-            currentSkillId == 30010183 &&
+            ShouldForceMountedDemonJumpUpLookupPrime(
+                mountItemId,
+                rootSkillId,
+                currentSkillId,
+                hasRecentIntent) &&
             oMountedDemonJumpAfbLookup773500)
         {
             retriedWideLookup = true;
@@ -18520,9 +15861,20 @@ static void __fastcall hkMountedDemonJumpUpActionAFB710(
 
     if (shouldLog &&
         thisPtr &&
-        rootSkillId == 30010110 &&
-        currentSkillId == 30010183)
+        ShouldForceMountedDemonJumpUpLookupPrime(
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            hasRecentIntent))
     {
+        TryArmMountedDemonJumpUpLookupPrimeBit(
+            thisPtr,
+            mountItemId,
+            rootSkillId,
+            currentSkillId,
+            hasRecentIntent,
+            "AFB710-up-prime",
+            callerRet);
         static LONG s_mountedDemonJumpUpActionAFB710ObserveLogBudget = 24;
         if (InterlockedDecrement(
                 &s_mountedDemonJumpUpActionAFB710ObserveLogBudget) >= 0)
@@ -18540,68 +15892,6 @@ static void __fastcall hkMountedDemonJumpUpActionAFB710(
     if (oMountedDemonJumpUpActionAFB710)
     {
         oMountedDemonJumpUpActionAFB710(thisPtr);
-    }
-
-    if (!shouldLog &&
-        thisPtr &&
-        (callerRet == 0x00B1E02B || callerRet == 0x00B1CB35))
-    {
-        int postMountItemId = 0;
-        const bool resolvedPostMount =
-            TryResolveMountedDemonJumpMountItemIdWithFallback(
-                thisPtr,
-                &postMountItemId,
-                nullptr,
-                1200) ||
-            TryResolveMountedDemonJumpMountItemIdWithFallback(
-                nullptr,
-                &postMountItemId,
-                nullptr,
-                1200) ||
-            TryReadCurrentUserMountItemId(&postMountItemId);
-        int postRootSkillId = 0;
-        int postCurrentSkillId = 0;
-        const bool hasPostContext =
-            resolvedPostMount &&
-            postMountItemId > 0 &&
-            ResolveMountedRuntimeSkillIdForKind(
-                MountedRuntimeSkillKind_DemonJump,
-                postMountItemId) == 30010110 &&
-            TryReadMountedDemonJumpContextState(
-                &postRootSkillId,
-                &postCurrentSkillId,
-                nullptr) &&
-            postRootSkillId == 30010110 &&
-            IsMountedDemonJumpRuntimeChildSkillId(postCurrentSkillId) &&
-            SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-                postMountItemId,
-                postCurrentSkillId);
-        if (hasPostContext &&
-            !HasRecentMountedDemonJumpIntent(postMountItemId, 250))
-        {
-            RememberMountedDemonJumpNativeChildSkill(
-                postMountItemId,
-                postCurrentSkillId,
-                "AFB710-post-context");
-            ObserveMountedDemonJumpIntent(
-                postMountItemId,
-                "AFB710-post-context");
-
-            static LONG s_mountedDemonJumpUpActionAFB710PostArmLogBudget = 32;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpUpActionAFB710PostArmLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpPrime] AFB710 post-context arm caller=0x%08X stage=%s this=0x%08X mount=%d root=%d current=%d intent=%d",
-                    callerRet,
-                    callerStage,
-                    (DWORD)(uintptr_t)thisPtr,
-                    postMountItemId,
-                    postRootSkillId,
-                    postCurrentSkillId,
-                    HasRecentMountedDemonJumpIntent(postMountItemId, 250) ? 1 : 0);
-            }
-        }
     }
 
     if (shouldLog)
@@ -18743,21 +16033,6 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
     const bool hasRecentIntent =
         resolvedMount && mountItemId > 0 &&
         HasRecentMountedDemonJumpIntent(mountItemId, 1200);
-    int recentGlideProxyMountItemId = 0;
-    const bool hasRecentGlideProxyNativeRelease =
-        resolvedMount &&
-        mountItemId > 0 &&
-        ((TryResolveRecentMountedRuntimeSkillNativeRelease(
-              MountedRuntimeSkillKind_DemonJump,
-              23001002,
-              &recentGlideProxyMountItemId,
-              450) &&
-          recentGlideProxyMountItemId == mountItemId) ||
-         HasFreshMountedRuntimeSkillNativeReleaseRaw(
-             MountedRuntimeSkillKind_DemonJump,
-             23001002,
-             mountItemId,
-             450));
     int rewrittenSkillId = skillId;
     int rewrittenLevel = level;
     const char *rewriteSource = nullptr;
@@ -18765,17 +16040,6 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
     int packet93Level = level;
     bool packet93RewriteArmed = false;
     DWORD packet93RewriteTick = 0;
-    const bool canUseMountedUpChildPacketRewrite =
-        resolvedMount &&
-        mountItemId > 0 &&
-        hasRecentIntent &&
-        skillId == 30010183 &&
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) == 30010110 &&
-        SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            skillId);
     if (resolvedMount &&
         mountItemId > 0 &&
         skillId == 30010110 &&
@@ -18792,13 +16056,9 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
             rootSkillId == 30010110 &&
             IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
         {
-            if (!(hasRecentGlideProxyNativeRelease &&
-                  currentSkillId == 30010183))
-            {
-                rewrittenSkillId = currentSkillId;
-                rewrittenLevel = 1;
-                rewriteSource = "native-context";
-            }
+            rewrittenSkillId = currentSkillId;
+            rewrittenLevel = 1;
+            rewriteSource = "native-context";
         }
         else
         {
@@ -18811,29 +16071,9 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
                     1500) &&
                 IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId))
             {
-                if (!(hasRecentGlideProxyNativeRelease &&
-                      recentChildSkillId == 30010183))
-                {
-                    rewrittenSkillId = recentChildSkillId;
-                    rewrittenLevel = 1;
-                    rewriteSource = recentChildSource;
-                }
-            }
-        }
-        if (hasRecentGlideProxyNativeRelease &&
-            rewrittenSkillId == 30010110)
-        {
-            static LONG s_mountedDemonJumpPacketDispatchDeferGlideUpRewriteLogBudget =
-                24;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpPacketDispatchDeferGlideUpRewriteLogBudget) >=
-                0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJump93Rewrite] defer glide proxy stale up-child mount=%d skill=%d source=%s",
-                    mountItemId,
-                    skillId,
-                    rewriteSource ? rewriteSource : "none");
+                rewrittenSkillId = recentChildSkillId;
+                rewrittenLevel = 1;
+                rewriteSource = recentChildSource;
             }
         }
         packet93RewriteArmed =
@@ -18845,23 +16085,6 @@ static void __fastcall hkMountedSkillPacketDispatchB26760(
                 IsMountedDemonJumpRuntimeChildSkillId(rewrittenSkillId)
                     ? rewrittenSkillId
                     : 0,
-                rewriteSource,
-                &packet93RewriteTick);
-    }
-    else if (canUseMountedUpChildPacketRewrite)
-    {
-        rewrittenSkillId = 30010183;
-        rewrittenLevel = 1;
-        rewriteSource = "native-up-child-packet";
-        packet93SkillId = 30010110;
-        packet93Level = 1;
-        packet93RewriteArmed =
-            ArmMountedDemonJumpPendingSpecialMoveRewrite(
-                mountItemId,
-                skillId,
-                packet93SkillId,
-                packet93Level,
-                rewrittenSkillId,
                 rewriteSource,
                 &packet93RewriteTick);
     }
@@ -19010,9 +16233,10 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
         DWORD repeatedAge = 0;
         if (ShouldSuppressMountedDemonJumpRepeatedGlidePacket(
                 mountItemId,
-                kMountedDemonJumpRepeatedGlidePacketSuppressMaxAgeMs,
+                600,
                 &repeatedAge))
         {
+            RememberMountedDemonJumpGlidePacket(mountItemId);
             SkillOverlayBridgeCompleteMountedNativeReleaseContext(
                 30010110,
                 30010186);
@@ -19240,14 +16464,6 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
 
         __try
         {
-            DWORD releasedGuardAgeMs = 450;
-            if (effectiveReleasedSkillId == 30010183 ||
-                effectiveReleasedSkillId == 30010184)
-            {
-                releasedGuardAgeMs =
-                    kMountedDemonJumpPacketGuardReleaseAgeMs;
-            }
-
             nativePostPacketBusy =
                 *reinterpret_cast<DWORD *>(preWndMan + 8372);
             nativePostPacketLastTick =
@@ -19262,25 +16478,10 @@ static int __fastcall hkMountedSkillAttackPacketB28A00(
             // re-arms busy=1 age=0. Up/side are already fully finalized by this
             // point; glide still keeps its native context, but the packet guard
             // tail itself should not continue to block landing movement or the
-            // next trigger window. v22.36 logs then showed finalGuard age=450
-            // alongside the remaining ~0.5s landing lock. For up/side, release
-            // this guard to an already-old age instead of refreshing it back
-            // into the same block window; if the prepacket guard was even older,
-            // preserve that older timestamp.
-            DWORD releasedGuardLastTick =
-                nowTick > releasedGuardAgeMs
-                    ? (nowTick - releasedGuardAgeMs)
-                    : 0;
-            if (prePacketLastTick != 0 &&
-                prePacketAge > releasedGuardAgeMs &&
-                (releasedGuardLastTick == 0 ||
-                 prePacketLastTick < releasedGuardLastTick))
-            {
-                releasedGuardLastTick = prePacketLastTick;
-            }
+            // next trigger window.
             *reinterpret_cast<DWORD *>(preWndMan + 8372) = 0;
             *reinterpret_cast<DWORD *>(preWndMan + 8376) =
-                releasedGuardLastTick;
+                nowTick > 450 ? (nowTick - 450) : 0;
             releasedPostPacketGuard = true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -20220,85 +17421,6 @@ static BOOL ResolveMountedRuntimeSkillGateAllow(
         return FALSE;
     }
 
-    if (kind == MountedRuntimeSkillKind_DemonJump &&
-        (IsMountedDemonJumpRelatedSkillId(originalSkillId) ||
-         IsMountedDemonJumpRelatedSkillId(mappedSkillId)))
-    {
-        const bool hasRecentIntent =
-            HasRecentMountedDemonJumpIntent(mountItemId, 250);
-        const bool hasRecentTerminalClear =
-            HasRecentMountedDemonJumpTerminalClear(
-                mountItemId,
-                kMountedDemonJumpTerminalClearSuppressMs);
-        int probeMountItemId = 0;
-        const bool hasFreshProbe =
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &probeMountItemId,
-                250) &&
-            probeMountItemId == mountItemId;
-        int rootSkillId = 0;
-        int currentSkillId = 0;
-        const bool hasContext =
-            TryReadMountedDemonJumpContextState(
-                &rootSkillId,
-                &currentSkillId,
-                nullptr);
-        const bool contextActive =
-            hasContext &&
-            (rootSkillId == 30010110 ||
-             currentSkillId == 30010110 ||
-             IsMountedDemonJumpRuntimeChildSkillId(rootSkillId) ||
-             IsMountedDemonJumpRuntimeChildSkillId(currentSkillId));
-        const bool isRootFallback =
-            originalSkillId == 30010110 ||
-            mappedSkillId == 30010110;
-        if (isRootFallback &&
-            hasRecentTerminalClear &&
-            !contextActive &&
-            // A new mounted demon-jump attempt should override the previous
-            // post-release terminal-clear guard as soon as a fresh intent or
-            // fresh gate probe is observed for the same mount.
-            !hasRecentIntent &&
-            !hasFreshProbe)
-        {
-            static LONG s_mountedDemonJumpGateAllowTerminalRejectLogBudget = 64;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpGateAllowTerminalRejectLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpGate] reject terminal-clear original=%d mapped=%d mount=%d recent=%d probe=%d root=%d current=%d",
-                    originalSkillId,
-                    mappedSkillId,
-                    mountItemId,
-                    hasRecentIntent ? 1 : 0,
-                    hasFreshProbe ? 1 : 0,
-                    hasContext ? rootSkillId : 0,
-                    hasContext ? currentSkillId : 0);
-            }
-            return FALSE;
-        }
-        if (!hasRecentIntent &&
-            !hasFreshProbe &&
-            !contextActive)
-        {
-            static LONG s_mountedDemonJumpGateAllowRejectLogBudget = 64;
-            if (InterlockedDecrement(
-                    &s_mountedDemonJumpGateAllowRejectLogBudget) >= 0)
-            {
-                WriteLogFmt(
-                    "[MountDemonJumpGate] reject fallback original=%d mapped=%d mount=%d recent=%d probe=%d root=%d current=%d",
-                    originalSkillId,
-                    mappedSkillId,
-                    mountItemId,
-                    hasRecentIntent ? 1 : 0,
-                    hasFreshProbe ? 1 : 0,
-                    hasContext ? rootSkillId : 0,
-                    hasContext ? currentSkillId : 0);
-            }
-            return FALSE;
-        }
-    }
-
     if (resolvedMountItemIdOut)
     {
         *resolvedMountItemIdOut = mountItemId;
@@ -20362,12 +17484,6 @@ static bool IsMountedDemonJumpRuntimeChildSkillId(int skillId)
     return skillId == 30010183 ||
            skillId == 30010184 ||
            skillId == 30010186;
-}
-
-static bool IsMountedDemonJumpGateProbeLevelSeedCaller(DWORD callerRet)
-{
-    return callerRet == 0x79AEB002 ||
-           callerRet == 0x00A04B7A;
 }
 
 static bool TryResolveMountedDemonJumpActiveChildSkill(
@@ -20509,69 +17625,6 @@ static bool TryResolveMountedDemonJumpActiveChildSkill(
             mountItemId,
             childSkillId))
     {
-        int recentChildSkillId = 0;
-        const bool hasRecentChild =
-            TryGetRecentMountedDemonJumpNativeChildSkill(
-                mountItemId,
-                &recentChildSkillId,
-                nullptr,
-                maxAgeMs) &&
-            IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId);
-        BYTE gateMode = 0;
-        BYTE downLatch = 0;
-        BYTE upLatch = 0;
-        BYTE local5E84 = 0;
-        BYTE local5E85 = 0;
-        BYTE local5EE4 = 0;
-        void *userLocal = nullptr;
-        if (TryReadCurrentUserLocalPtr(&userLocal) && userLocal)
-        {
-            const uintptr_t userLocalAddr =
-                reinterpret_cast<uintptr_t>(userLocal);
-            __try
-            {
-                gateMode =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 24292);
-                downLatch =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 24196);
-                upLatch =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 24197);
-                local5E84 =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 0x5E84);
-                local5E85 =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 0x5E85);
-                local5EE4 =
-                    *reinterpret_cast<BYTE *>(userLocalAddr + 0x5EE4);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                gateMode = 0;
-                downLatch = 0;
-                upLatch = 0;
-                local5E84 = 0;
-                local5E85 = 0;
-                local5EE4 = 0;
-            }
-        }
-
-        static LONG s_mountedDemonJumpActiveChildUnresolvedLogBudget = 48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpActiveChildUnresolvedLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpDiag] active child unresolved observed=%d mount=%d root=%d current=%d recentChild=%d gate=%u/%u/%u local=%u/%u/%u",
-                observedSkillId,
-                mountItemId,
-                rootSkillId,
-                currentSkillId,
-                hasRecentChild ? recentChildSkillId : 0,
-                static_cast<unsigned int>(gateMode),
-                static_cast<unsigned int>(downLatch),
-                static_cast<unsigned int>(upLatch),
-                static_cast<unsigned int>(local5E84),
-                static_cast<unsigned int>(local5E85),
-                static_cast<unsigned int>(local5EE4));
-        }
         return false;
     }
 
@@ -20609,7 +17662,6 @@ static bool IsMountedDemonJumpBridgeEntrySkillId(int skillId)
 
 static bool TryResolveMountedDemonJumpProxyFallbackChildSkill(
     int proxySkillId,
-    int demonContextSkillId,
     int *childSkillIdOut,
     const char **sourceOut)
 {
@@ -20622,16 +17674,13 @@ static bool TryResolveMountedDemonJumpProxyFallbackChildSkill(
         *sourceOut = nullptr;
     }
 
-    // Evidence from v22.51/v22.90 logs:
-    // when context is only root/current=30010110, forcing proxy-23001002 to
-    // glide child 30010186 hijacks fresh side-jump attempts. Keep this fallback
-    // only while the active demon-jump context is already the real glide child.
+    // Evidence from v21.52 logs:
+    // recent=23001002 sometimes already reroutes to child=30010186 via
+    // recent-child-cache, and sometimes drops back to keep-root/B26760 when
+    // that cache arrives a little too late. Keep this fallback narrowly scoped
+    // to the proven proxy mapping instead of guessing other proxy families.
     if (proxySkillId == 23001002)
     {
-        if (demonContextSkillId != 30010186)
-        {
-            return false;
-        }
         if (childSkillIdOut)
         {
             *childSkillIdOut = 30010186;
@@ -20712,6 +17761,8 @@ static volatile LONG g_mountedUnknownSkillReleaseBranchRuntimeSkillOverride = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildSkillId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildMountItemId = 0;
 static volatile LONG g_recentMountedDemonJumpNativeChildTick = 0;
+static volatile LONG g_recentMountedDemonJumpForcedUpConfirmMountItemId = 0;
+static volatile LONG g_recentMountedDemonJumpForcedUpConfirmTick = 0;
 static volatile LONG g_recentMountedDemonJumpPostPacketVisualChildSkillId = 0;
 static volatile LONG g_recentMountedDemonJumpPostPacketVisualMountItemId = 0;
 static volatile LONG g_recentMountedDemonJumpPostPacketVisualTick = 0;
@@ -20788,6 +17839,15 @@ static void RememberMountedDemonJumpNativeChildSkill(
     InterlockedExchange(
         &g_recentMountedDemonJumpNativeChildTick,
         static_cast<LONG>(GetTickCount()));
+    if (skillId != 30010183)
+    {
+        InterlockedExchange(
+            &g_recentMountedDemonJumpForcedUpConfirmMountItemId,
+            0);
+        InterlockedExchange(
+            &g_recentMountedDemonJumpForcedUpConfirmTick,
+            0);
+    }
 
     static LONG s_recentMountedDemonJumpNativeChildLogBudget = 48;
     if (InterlockedDecrement(&s_recentMountedDemonJumpNativeChildLogBudget) >= 0)
@@ -20798,6 +17858,61 @@ static void RememberMountedDemonJumpNativeChildSkill(
             mountItemId,
             skillId);
     }
+}
+
+static void ObserveMountedDemonJumpForcedUpConfirm(int mountItemId)
+{
+    if (mountItemId <= 0)
+    {
+        return;
+    }
+
+    InterlockedExchange(
+        &g_recentMountedDemonJumpForcedUpConfirmMountItemId,
+        mountItemId);
+    InterlockedExchange(
+        &g_recentMountedDemonJumpForcedUpConfirmTick,
+        static_cast<LONG>(GetTickCount()));
+
+    static LONG s_recentMountedDemonJumpForcedUpConfirmLogBudget = 32;
+    if (InterlockedDecrement(
+            &s_recentMountedDemonJumpForcedUpConfirmLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpUpConfirm] arm mount=%d",
+            mountItemId);
+    }
+}
+
+static bool HasRecentMountedDemonJumpForcedUpConfirm(
+    int mountItemId,
+    DWORD maxAgeMs)
+{
+    if (mountItemId <= 0)
+    {
+        return false;
+    }
+
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(
+            &g_recentMountedDemonJumpForcedUpConfirmMountItemId,
+            0,
+            0);
+    const LONG recentTick =
+        InterlockedCompareExchange(
+            &g_recentMountedDemonJumpForcedUpConfirmTick,
+            0,
+            0);
+    if (recentMountItemId != mountItemId ||
+        recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD allowedAgeMs =
+        maxAgeMs > 0 ? maxAgeMs : 1200;
+    const DWORD nowTick = GetTickCount();
+    return nowTick - static_cast<DWORD>(recentTick) <= allowedAgeMs;
 }
 
 static bool TryGetRecentMountedDemonJumpNativeChildSkill(
@@ -20839,6 +17954,60 @@ static bool TryGetRecentMountedDemonJumpNativeChildSkill(
         return false;
     }
 
+    if (skillIdOut)
+    {
+        *skillIdOut = static_cast<int>(recentSkillId);
+    }
+    if (sourceOut)
+    {
+        *sourceOut = "recent-child-cache";
+    }
+    return true;
+}
+
+static bool TryGetRecentMountedDemonJumpNativeChildMountItemId(
+    int *mountItemIdOut,
+    int *skillIdOut,
+    const char **sourceOut,
+    DWORD maxAgeMs)
+{
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = 0;
+    }
+    if (skillIdOut)
+    {
+        *skillIdOut = 0;
+    }
+    if (sourceOut)
+    {
+        *sourceOut = nullptr;
+    }
+
+    const LONG recentSkillId =
+        InterlockedCompareExchange(&g_recentMountedDemonJumpNativeChildSkillId, 0, 0);
+    const LONG recentMountItemId =
+        InterlockedCompareExchange(&g_recentMountedDemonJumpNativeChildMountItemId, 0, 0);
+    const LONG recentTick =
+        InterlockedCompareExchange(&g_recentMountedDemonJumpNativeChildTick, 0, 0);
+    if (!IsMountedDemonJumpRuntimeChildSkillId(static_cast<int>(recentSkillId)) ||
+        recentMountItemId <= 0 ||
+        recentTick <= 0)
+    {
+        return false;
+    }
+
+    const DWORD allowedAgeMs = maxAgeMs > 0 ? maxAgeMs : 1500;
+    const DWORD nowTick = GetTickCount();
+    if (nowTick - static_cast<DWORD>(recentTick) > allowedAgeMs)
+    {
+        return false;
+    }
+
+    if (mountItemIdOut)
+    {
+        *mountItemIdOut = static_cast<int>(recentMountItemId);
+    }
     if (skillIdOut)
     {
         *skillIdOut = static_cast<int>(recentSkillId);
@@ -20933,6 +18102,52 @@ static bool TryGetRecentMountedDemonJumpPostPacketVisualChildSkill(
     return true;
 }
 
+static void ClearMountedDemonJumpPostPacketVisualChildSkill(
+    int mountItemId,
+    const char *reasonTag)
+{
+    const LONG cachedSkillId = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualChildSkillId,
+        0,
+        0);
+    const LONG cachedMountItemId = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualMountItemId,
+        0,
+        0);
+    const LONG cachedTick = InterlockedCompareExchange(
+        &g_recentMountedDemonJumpPostPacketVisualTick,
+        0,
+        0);
+    if (!IsMountedDemonJumpRuntimeChildSkillId(
+            static_cast<int>(cachedSkillId)) ||
+        cachedMountItemId <= 0 ||
+        cachedTick <= 0)
+    {
+        return;
+    }
+
+    if (mountItemId > 0 &&
+        cachedMountItemId != mountItemId)
+    {
+        return;
+    }
+
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualChildSkillId, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualMountItemId, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualTick, 0);
+
+    static LONG s_clearMountedDemonJumpPostPacketVisualLogBudget = 48;
+    if (InterlockedDecrement(
+            &s_clearMountedDemonJumpPostPacketVisualLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[MountDemonJumpVisual] clear reason=%s mount=%d child=%d",
+            reasonTag ? reasonTag : "unknown",
+            static_cast<int>(cachedMountItemId),
+            static_cast<int>(cachedSkillId));
+    }
+}
+
 static void ClearMountedDemonJumpTransientRuntimeState(
     int mountItemId,
     const char *reasonTag)
@@ -20940,32 +18155,6 @@ static void ClearMountedDemonJumpTransientRuntimeState(
     if (mountItemId <= 0)
     {
         return;
-    }
-
-    ClearMountedRuntimeSkillTransientStateIfMatching(
-        MountedRuntimeSkillKind_DoubleJump,
-        mountItemId,
-        reasonTag ? reasonTag : "mounted-demon-clear",
-        "MountDoubleJump");
-
-    const LONG recentGateProbeMountItemId = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpGateProbeItemId,
-        0,
-        0);
-    const LONG recentGateProbeChildSkillId = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpGateProbeChildSkillId,
-        0,
-        0);
-    const LONG recentGateProbeTick = InterlockedCompareExchange(
-        &g_recentMountedDemonJumpGateProbeTick,
-        0,
-        0);
-    const bool hadGateProbe = recentGateProbeMountItemId == mountItemId;
-    DWORD gateProbeAgeMs = 0;
-    if (hadGateProbe && recentGateProbeTick > 0)
-    {
-        gateProbeAgeMs =
-            GetTickCount() - static_cast<DWORD>(recentGateProbeTick);
     }
 
     InterlockedExchange(
@@ -20986,6 +18175,8 @@ static void ClearMountedDemonJumpTransientRuntimeState(
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildSkillId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildMountItemId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpNativeChildTick, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpForcedUpConfirmMountItemId, 0);
+    InterlockedExchange(&g_recentMountedDemonJumpForcedUpConfirmTick, 0);
     InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualChildSkillId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualMountItemId, 0);
     InterlockedExchange(&g_recentMountedDemonJumpPostPacketVisualTick, 0);
@@ -21002,9 +18193,6 @@ static void ClearMountedDemonJumpTransientRuntimeState(
     InterlockedExchange(&g_pendingMountedDemonJumpRewritePacketLevel, 0);
     InterlockedExchange(&g_pendingMountedDemonJumpRewriteRuntimeChildSkillId, 0);
     InterlockedExchange(&g_pendingMountedDemonJumpRewriteArmTick, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeItemId, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeChildSkillId, 0);
-    InterlockedExchange(&g_recentMountedDemonJumpGateProbeTick, 0);
     ZeroMemory(
         g_pendingMountedDemonJumpRewritePacket,
         sizeof(g_pendingMountedDemonJumpRewritePacket));
@@ -21017,14 +18205,9 @@ static void ClearMountedDemonJumpTransientRuntimeState(
             &s_clearMountedDemonJumpTransientRuntimeStateLogBudget) >= 0)
     {
         WriteLogFmt(
-            "[MountDemonJump] clear runtime transient state mount=%d reason=%s hadProbe=%d probeChild=%d probeAge=%u",
+            "[MountDemonJump] clear runtime transient state mount=%d reason=%s",
             mountItemId,
-            reasonTag ? reasonTag : "unknown",
-            hadGateProbe ? 1 : 0,
-            hadGateProbe
-                ? static_cast<int>(recentGateProbeChildSkillId)
-                : 0,
-            gateProbeAgeMs);
+            reasonTag ? reasonTag : "unknown");
     }
 }
 
@@ -21768,7 +18951,6 @@ static int __fastcall hkMountedDemonJumpTrace4C1720(void *thisPtr, void * /*edxU
                     runtimeSkillId,
                     mountItemId,
                     (DWORD)(uintptr_t)thisPtr);
-        LogMountedDemonJumpTraceRowTriplets("4C1720", thisPtr);
     }
 
     const int result = oMountedDemonJumpTrace4C1720
@@ -21796,7 +18978,6 @@ static int __fastcall hkMountedDemonJumpTrace52BCB0(void *thisPtr, void * /*edxU
                     runtimeSkillId,
                     mountItemId,
                     (DWORD)(uintptr_t)thisPtr);
-        LogMountedDemonJumpTraceRowTriplets("52BCB0", thisPtr);
     }
 
     const int result = oMountedDemonJumpTrace52BCB0
@@ -22710,9 +19891,33 @@ static int __fastcall hkMountedDemonJumpActionPrepareB273B0(
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     int runtimeSkillId = 0;
     int mountItemId = 0;
-    const bool trace =
-        callerRet == 0x00B31199 &&
-        IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    bool trace = IsMountedDemonJumpCrashTraceFresh(&runtimeSkillId, &mountItemId);
+    if ((!trace ||
+         mountItemId <= 0 ||
+         !IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId)) &&
+        (static_cast<int>(arg1) == 30010110 ||
+         IsMountedDemonJumpRuntimeProxySkillId(static_cast<int>(arg1)) ||
+         IsMountedDemonJumpRuntimeChildSkillId(static_cast<int>(arg1))))
+    {
+        int activeMountItemId = 0;
+        int activeRootSkillId = 0;
+        int activeCurrentSkillId = 0;
+        int activeChildSkillId = 0;
+        if (TryResolveMountedDemonJumpActiveChildSkill(
+                static_cast<int>(arg1),
+                1200,
+                &activeMountItemId,
+                &activeRootSkillId,
+                &activeCurrentSkillId,
+                &activeChildSkillId) &&
+            activeMountItemId > 0 &&
+            IsMountedDemonJumpRuntimeChildSkillId(activeChildSkillId))
+        {
+            runtimeSkillId = activeChildSkillId;
+            mountItemId = activeMountItemId;
+            trace = true;
+        }
+    }
     DWORD effectiveSkillId = arg1;
     bool remappedSkillId = false;
     if (trace &&
@@ -22914,10 +20119,10 @@ static int __fastcall hkMountedDemonJumpActionGateA9B710(
         ResolveMountedRuntimeSkillIdForKind(
             MountedRuntimeSkillKind_DemonJump,
             mountItemId) == 30010110 &&
-        TryReadMountedDemonJumpEffectiveContextState(
-            mountItemId,
+        TryReadMountedDemonJumpContextState(
             &rootSkillId,
-            &currentSkillId) &&
+            &currentSkillId,
+            nullptr) &&
         rootSkillId == 30010110)
     {
         if (!IsMountedDemonJumpRuntimeChildSkillId(currentSkillId))
@@ -23043,6 +20248,8 @@ static DWORD RewriteMountedDemonJumpActionRouteB29C70SkillEntry(
     int *originalSkillIdOut,
     int *rewrittenSkillIdOut)
 {
+    (void)callerRet;
+
     if (originalSkillIdOut)
     {
         *originalSkillIdOut = 0;
@@ -23052,8 +20259,7 @@ static DWORD RewriteMountedDemonJumpActionRouteB29C70SkillEntry(
         *rewrittenSkillIdOut = 0;
     }
 
-    if (callerRet != 0x00B32235 ||
-        originalEntryPtr == 0 ||
+    if (originalEntryPtr == 0 ||
         !IsMountedDemonJumpRuntimeChildSkillId(runtimeSkillId) ||
         mountItemId <= 0 ||
         ResolveMountedRuntimeSkillIdForKind(
@@ -23090,10 +20296,10 @@ static DWORD RewriteMountedDemonJumpActionRouteB29C70SkillEntry(
 
     int rootSkillId = 0;
     int currentSkillId = 0;
-    if (!TryReadMountedDemonJumpEffectiveContextState(
-            mountItemId,
+    if (!TryReadMountedDemonJumpContextState(
             &rootSkillId,
-            &currentSkillId) ||
+            &currentSkillId,
+            nullptr) ||
         rootSkillId != 30010110)
     {
         return originalEntryPtr;
@@ -23463,167 +20669,22 @@ static int ResolveMountedDemonJumpCacheEntrySkillId(
         return recentChildSkillId;
     }
 
-    int gateProbePreferredChildSkillId = 0;
-    if (TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-            mountItemId,
-            &gateProbePreferredChildSkillId,
-            400) &&
-        SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            gateProbePreferredChildSkillId))
-    {
-        return gateProbePreferredChildSkillId;
-    }
-
-    const int latchedUpChildSkillId =
-        ResolveMountedDemonJumpLatchedUpChildSkillId(
-            mountItemId,
-            rootSkillId,
-            currentSkillId);
-    if (IsMountedDemonJumpRuntimeChildSkillId(latchedUpChildSkillId) &&
-        SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            latchedUpChildSkillId))
-    {
-        return latchedUpChildSkillId;
-    }
-
     return 30010110;
-}
-
-static bool TryReadMountedDemonJumpCacheEntrySkillId(
-    void *cachePtr,
-    int *entrySkillIdOut)
-{
-    if (entrySkillIdOut)
-    {
-        *entrySkillIdOut = 0;
-    }
-
-    if (!cachePtr ||
-        !entrySkillIdOut ||
-        SafeIsBadReadPtr(cachePtr, sizeof(uintptr_t)))
-    {
-        return false;
-    }
-
-    uintptr_t entryPtr = 0;
-    __try
-    {
-        entryPtr = *reinterpret_cast<uintptr_t *>(cachePtr);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        entryPtr = 0;
-    }
-
-    if (!entryPtr ||
-        SafeIsBadReadPtr(reinterpret_cast<void *>(entryPtr), sizeof(int)))
-    {
-        return false;
-    }
-
-    int entrySkillId = 0;
-    __try
-    {
-        entrySkillId = *reinterpret_cast<int *>(entryPtr);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        entrySkillId = 0;
-    }
-
-    if (entrySkillId <= 0)
-    {
-        return false;
-    }
-
-    *entrySkillIdOut = entrySkillId;
-    return true;
-}
-
-static void LogMountedDemonJumpCachePreseedReject(
-    const char *hookTag,
-    const char *reasonTag,
-    DWORD callerRet,
-    int skillId,
-    int lookupSkillId,
-    int mountItemId,
-    bool directMountedDemonSkillQuery,
-    bool hasRecentProbe,
-    bool allowGateProbeSeedRefresh,
-    uintptr_t existingEntry,
-    int existingEntrySkillId,
-    int gateProbePreferredChildSkillId)
-{
-    static LONG s_mountedDemonJumpCachePreseedRejectLogBudget = 96;
-    static DWORD s_lastLogTick = 0;
-    static DWORD s_lastCallerRet = 0;
-    static int s_lastSkillId = 0;
-    static int s_lastLookupSkillId = 0;
-    static int s_lastMountItemId = 0;
-    static int s_lastExistingEntrySkillId = 0;
-    static const char *s_lastReasonTag = nullptr;
-
-    const DWORD nowTick = GetTickCount();
-    if (callerRet == s_lastCallerRet &&
-        skillId == s_lastSkillId &&
-        lookupSkillId == s_lastLookupSkillId &&
-        mountItemId == s_lastMountItemId &&
-        existingEntrySkillId == s_lastExistingEntrySkillId &&
-        reasonTag == s_lastReasonTag &&
-        nowTick - s_lastLogTick < 120)
-    {
-        return;
-    }
-
-    const LONG budgetAfterDecrement =
-        InterlockedDecrement(&s_mountedDemonJumpCachePreseedRejectLogBudget);
-    if (budgetAfterDecrement < 0)
-    {
-        return;
-    }
-
-    s_lastLogTick = nowTick;
-    s_lastCallerRet = callerRet;
-    s_lastSkillId = skillId;
-    s_lastLookupSkillId = lookupSkillId;
-    s_lastMountItemId = mountItemId;
-    s_lastExistingEntrySkillId = existingEntrySkillId;
-    s_lastReasonTag = reasonTag;
-
-    WriteLogFmt(
-        "[MountDemonJumpCache] %s stage=preseed-reject reason=%s query=%d lookup=%d mount=%d caller=0x%08X direct=%d recentProbe=%d allowProbeRefresh=%d existingEntry=0x%08X existingSkill=%d gateProbeChild=%d",
-        hookTag ? hookTag : "skill-level",
-        reasonTag ? reasonTag : "unknown",
-        skillId,
-        lookupSkillId,
-        mountItemId,
-        callerRet,
-        directMountedDemonSkillQuery ? 1 : 0,
-        hasRecentProbe ? 1 : 0,
-        allowGateProbeSeedRefresh ? 1 : 0,
-        static_cast<DWORD>(existingEntry),
-        existingEntrySkillId,
-        gateProbePreferredChildSkillId);
 }
 
 static bool TryPreseedMountedDemonJumpLevelCache(
     const char *hookTag,
-    DWORD callerRet,
     int skillId,
     int lookupSkillId,
     void *cachePtr)
 {
     if (!cachePtr ||
-        SafeIsBadWritePtr(cachePtr, sizeof(uintptr_t)))
+        SafeIsBadWritePtr(cachePtr, sizeof(uintptr_t)) ||
+        (!IsMountedDemonJumpRelatedSkillId(skillId) &&
+         !IsMountedDemonJumpRelatedSkillId(lookupSkillId)))
     {
         return false;
     }
-
-    const bool directMountedDemonSkillQuery =
-        IsMountedDemonJumpRelatedSkillId(skillId) ||
-        IsMountedDemonJumpRelatedSkillId(lookupSkillId);
 
     uintptr_t existingEntry = 0;
     __try
@@ -23635,8 +20696,12 @@ static bool TryPreseedMountedDemonJumpLevelCache(
         existingEntry = 0;
     }
 
+    if (existingEntry)
+    {
+        return false;
+    }
+
     int mountItemId = 0;
-    bool hasRecentProbe = false;
     if (!TryResolveMountedDemonJumpMountItemIdWithFallback(
             nullptr,
             &mountItemId,
@@ -23644,13 +20709,7 @@ static bool TryPreseedMountedDemonJumpLevelCache(
             1200) &&
         !TryGetRecentMountedDemonJumpIntentItemId(&mountItemId, 1200))
     {
-        if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &mountItemId,
-                400))
-        {
-            return false;
-        }
-        hasRecentProbe = true;
+        return false;
     }
 
     if (mountItemId <= 0 ||
@@ -23659,129 +20718,6 @@ static bool TryPreseedMountedDemonJumpLevelCache(
             mountItemId) != 30010110)
     {
         return false;
-    }
-
-    if (!hasRecentProbe)
-    {
-        int probeMountItemId = 0;
-        hasRecentProbe =
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &probeMountItemId,
-                400) &&
-            probeMountItemId == mountItemId;
-    }
-
-    int gateProbePreferredChildSkillId = 0;
-    if (hasRecentProbe)
-    {
-        TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
-            mountItemId,
-            &gateProbePreferredChildSkillId,
-            400);
-    }
-
-    const bool allowGateProbeSeedRefresh =
-        hasRecentProbe &&
-        IsMountedDemonJumpGateProbeLevelSeedCaller(callerRet);
-    if (!directMountedDemonSkillQuery && !allowGateProbeSeedRefresh)
-    {
-        LogMountedDemonJumpCachePreseedReject(
-            hookTag,
-            "caller-not-whitelisted",
-            callerRet,
-            skillId,
-            lookupSkillId,
-            mountItemId,
-            directMountedDemonSkillQuery,
-            hasRecentProbe,
-            allowGateProbeSeedRefresh,
-            existingEntry,
-            0,
-            gateProbePreferredChildSkillId);
-        return false;
-    }
-
-    if (existingEntry)
-    {
-        if (!allowGateProbeSeedRefresh)
-        {
-            if (hasRecentProbe)
-            {
-                LogMountedDemonJumpCachePreseedReject(
-                    hookTag,
-                    "existing-entry-refresh-not-allowed",
-                    callerRet,
-                    skillId,
-                    lookupSkillId,
-                    mountItemId,
-                    directMountedDemonSkillQuery,
-                    hasRecentProbe,
-                    allowGateProbeSeedRefresh,
-                    existingEntry,
-                    0,
-                    gateProbePreferredChildSkillId);
-            }
-            return false;
-        }
-
-        int existingEntrySkillId = 0;
-        if (!TryReadMountedDemonJumpCacheEntrySkillId(
-                cachePtr,
-                &existingEntrySkillId))
-        {
-            LogMountedDemonJumpCachePreseedReject(
-                hookTag,
-                "existing-entry-read-failed",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                directMountedDemonSkillQuery,
-                hasRecentProbe,
-                allowGateProbeSeedRefresh,
-                existingEntry,
-                0,
-                gateProbePreferredChildSkillId);
-            return false;
-        }
-
-        if (existingEntrySkillId != skillId &&
-            existingEntrySkillId != lookupSkillId)
-        {
-            LogMountedDemonJumpCachePreseedReject(
-                hookTag,
-                "existing-entry-mismatch",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                directMountedDemonSkillQuery,
-                hasRecentProbe,
-                allowGateProbeSeedRefresh,
-                existingEntry,
-                existingEntrySkillId,
-                gateProbePreferredChildSkillId);
-            return false;
-        }
-
-        if (existingEntrySkillId == 30010110 ||
-            IsMountedDemonJumpRuntimeChildSkillId(existingEntrySkillId))
-        {
-            LogMountedDemonJumpCachePreseedReject(
-                hookTag,
-                "existing-entry-already-runtime",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                directMountedDemonSkillQuery,
-                hasRecentProbe,
-                allowGateProbeSeedRefresh,
-                existingEntry,
-                existingEntrySkillId,
-                gateProbePreferredChildSkillId);
-            return false;
-        }
     }
 
     int entrySkillId = ResolveMountedDemonJumpCacheEntrySkillId(
@@ -23818,16 +20754,14 @@ static bool TryPreseedMountedDemonJumpLevelCache(
     if (budgetAfterDecrement >= 0)
     {
         WriteLogFmt(
-            "[MountDemonJumpCache] %s stage=%s query=%d lookup=%d entrySkill=%d mount=%d cache=0x%08X entry=0x%08X caller=0x%08X",
+            "[MountDemonJumpCache] %s stage=preseed query=%d lookup=%d entrySkill=%d mount=%d cache=0x%08X entry=0x%08X",
             hookTag ? hookTag : "skill-level",
-            existingEntry ? "probe-refresh" : "preseed",
             skillId,
             lookupSkillId,
             entrySkillId,
             mountItemId,
             (DWORD)(uintptr_t)cachePtr,
-            static_cast<DWORD>(bridgeEntry),
-            callerRet);
+            static_cast<DWORD>(bridgeEntry));
     }
     return true;
 }
@@ -23966,463 +20900,132 @@ static void ObserveMountedDemonJumpLevelQueryCaller(
                 finalResult);
 }
 
-static bool TryResolveMountedDemonJumpFreshChildLevelLookup(
-    DWORD callerRet,
-    int skillId,
-    int lookupSkillId,
-    void *cachePtr,
-    int *mountItemIdOut,
-    int *childSkillIdOut)
-{
-    if (mountItemIdOut)
-    {
-        *mountItemIdOut = 0;
-    }
-    if (childSkillIdOut)
-    {
-        *childSkillIdOut = 0;
-    }
-
-    // Current runtime evidence:
-    // 1. Failing root-path samples already reach 7DBC50 with
-    //    query/lookup=30010183 at caller 0x00433B4C, but B300AC still sees
-    //    recent=23001002 and drops back to keep-root.
-    // 2. Natural demon-jump success reaches 7DBC50 with
-    //    query/lookup=30010184 at caller 0x00B30B55 before the full child
-    //    release chain continues through 8057F0/B28A00.
-    // 3. Mounted left-jump success trace export-20260503-125544.csv also shows
-    //    7CF270 -> 7DC1CD -> 7DBC50 return=0x007DC1D2 with query/lookup still
-    //    resolved to child=30010184 before B31349/B28A00.
-    // 4. Mounted up-jump failure trace export-20260506-072846.csv shows
-    //    7DBC50 returning to 0x0086538F / 0x008653BE / 0x008545F6 while the
-    //    looked-up entry is already child=0x01C9EB47(30010183). These are the
-    //    earliest observable points in that failing chain where native child
-    //    resolution is concrete, but our mounted recent-intent/context had not
-    //    yet been re-armed.
-    //
-    // 5. Current v23.19 mounted job-100 logs show 42DE20 caller=0x00ADF02B
-    //    immediately followed by 7DBC50 returning to 0x79AEB002 / 0x00A04B7A
-    //    with query/lookup still parked on the mounted source skill
-    //    (80001099). Once that probe cache is refreshed to the real child,
-    //    these two callers become the earliest stable gate-probe seed points
-    //    before the proxy classifier decides whether to stay on mount
-    //    behavior or enter demon-jump release.
-    //
-    // Keep this whitelist narrow to only the verified early callers above.
-    // Later lookups such as AE0479/B28AD1/434034 remain too late and should
-    // not resurrect stale child state on their own.
-    if (callerRet != 0x00433B4C &&
-        callerRet != 0x00B30B55 &&
-        callerRet != 0x007DC1D2 &&
-        callerRet != 0x0086538F &&
-        callerRet != 0x008653BE &&
-        callerRet != 0x008545F6 &&
-        callerRet != 0x79AEB002 &&
-        callerRet != 0x00A04B7A)
-    {
-        return false;
-    }
-
-    int childSkillId = 0;
-    if (IsMountedDemonJumpRuntimeChildSkillId(lookupSkillId))
-    {
-        childSkillId = lookupSkillId;
-    }
-    else if (IsMountedDemonJumpRuntimeChildSkillId(skillId))
-    {
-        childSkillId = skillId;
-    }
-    else
-    {
-        int cacheEntrySkillId = 0;
-        if (TryReadMountedDemonJumpCacheEntrySkillId(
-                cachePtr,
-                &cacheEntrySkillId) &&
-            IsMountedDemonJumpRuntimeChildSkillId(cacheEntrySkillId))
-        {
-            childSkillId = cacheEntrySkillId;
-        }
-    }
-    if (!IsMountedDemonJumpRuntimeChildSkillId(childSkillId))
-    {
-        return false;
-    }
-
-    int mountItemId = 0;
-    bool hasRecentProbe = false;
-    if (!TryResolveMountedDemonJumpMountItemIdWithFallback(
-            nullptr,
-            &mountItemId,
-            nullptr,
-            1200) &&
-        !TryGetRecentMountedDemonJumpIntentItemId(&mountItemId, 1200))
-    {
-        if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &mountItemId,
-                400))
-        {
-            return false;
-        }
-        hasRecentProbe = true;
-    }
-    if (mountItemId <= 0 ||
-        ResolveMountedRuntimeSkillIdForKind(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId) != 30010110 ||
-        !SkillOverlayBridgeCanUseMountedDemonJumpRuntimeSkill(
-            mountItemId,
-            childSkillId))
-    {
-        return false;
-    }
-
-    if (!hasRecentProbe)
-    {
-        int probeMountItemId = 0;
-        hasRecentProbe =
-            TryGetRecentMountedDemonJumpGateProbeMountItemId(
-                &probeMountItemId,
-                400) &&
-            probeMountItemId == mountItemId;
-    }
-
-    if (!HasRecentMountedDemonJumpIntent(mountItemId, 1200) &&
-        !hasRecentProbe)
-    {
-        return false;
-    }
-
-    if (mountItemIdOut)
-    {
-        *mountItemIdOut = mountItemId;
-    }
-    if (childSkillIdOut)
-    {
-        *childSkillIdOut = childSkillId;
-    }
-    return true;
-}
-
-static void ObserveMountedDemonJumpFreshChildLevelLookup(
+static bool TryArmMountedDemonJumpIntentFromChildLevelQuery(
     const char *hookTag,
     DWORD callerRet,
     int skillId,
     int lookupSkillId,
-    void *cachePtr)
+    int finalResult)
 {
-    int mountItemId = 0;
-    int childSkillId = 0;
-    if (!TryResolveMountedDemonJumpFreshChildLevelLookup(
-            callerRet,
-            skillId,
-            lookupSkillId,
-            cachePtr,
-            &mountItemId,
-            &childSkillId))
+    if (finalResult <= 0)
     {
-        return;
+        return false;
     }
 
+    const int childSkillId =
+        IsMountedDemonJumpRuntimeChildSkillId(skillId)
+            ? skillId
+            : (IsMountedDemonJumpRuntimeChildSkillId(lookupSkillId)
+                   ? lookupSkillId
+                   : 0);
+    if (childSkillId <= 0)
+    {
+        return false;
+    }
+
+    static __declspec(thread) int s_mountedDemonJumpChildLevelArmDepth = 0;
+    if (s_mountedDemonJumpChildLevelArmDepth > 0)
+    {
+        return false;
+    }
+
+    int mountItemId = 0;
+    if (!TryReadCurrentUserMountItemId(&mountItemId) ||
+        mountItemId <= 0)
+    {
+        return false;
+    }
+
+    int contextRootSkillId = 0;
+    int contextCurrentSkillId = 0;
+    const bool hasLiveContext =
+        TryReadMountedDemonJumpContextState(
+            &contextRootSkillId,
+            &contextCurrentSkillId,
+            nullptr) &&
+        contextRootSkillId == 30010110;
+    const bool hasRouteArm =
+        SkillOverlayBridgeHasRecentMountedDemonJumpRouteArm(
+            mountItemId,
+            1200);
+    int recentIntentMountItemId = 0;
+    const bool hasRecentIntentItem =
+        TryGetRecentMountedDemonJumpIntentItemId(
+            &recentIntentMountItemId,
+            1200) &&
+        recentIntentMountItemId == mountItemId;
+
+    if (!hasLiveContext && !hasRouteArm && !hasRecentIntentItem)
+    {
+        return false;
+    }
+
+    const bool hadRecentIntent =
+        HasRecentMountedDemonJumpIntent(mountItemId, 250);
     int recentChildSkillId = 0;
-    const bool hasMatchingRecentChild =
+    const bool hadMatchingRecentChildCache =
         TryGetRecentMountedDemonJumpNativeChildSkill(
             mountItemId,
             &recentChildSkillId,
             nullptr,
-            250) &&
-        recentChildSkillId == childSkillId;
+            1500) &&
+        recentChildSkillId == childSkillId &&
+        IsMountedDemonJumpRuntimeChildSkillId(recentChildSkillId);
 
-    if (!hasMatchingRecentChild)
+    if (hadRecentIntent && hadMatchingRecentChildCache)
+    {
+        return false;
+    }
+
+    ++s_mountedDemonJumpChildLevelArmDepth;
+
+    if (!hadMatchingRecentChildCache)
     {
         RememberMountedDemonJumpNativeChildSkill(
             mountItemId,
             childSkillId,
-            hookTag ? hookTag : "skill-level");
+            hookTag ? hookTag : "level-child");
     }
 
-    const bool isSkillLevel7DBC50Hook =
-        hookTag &&
-        strcmp(hookTag, "7DBC50") == 0;
-    const bool shouldUseRawContextOnlyFor7DBC50 =
-        isSkillLevel7DBC50Hook &&
-        // v23.53 failure logs showed the repeated virtual child promotion flood
-        // came from the support lookup loop at 00A04B7A (80001099/2301014/
-        // 80001095/30001902), not from the primary 00433B4C child lookup that
-        // is still needed to seed the first 30010183 up-child correctly.
-        callerRet == 0x00A04B7A;
-    int rootSkillId = 0;
-    int currentSkillId = 0;
-    const bool hasContext =
-        shouldUseRawContextOnlyFor7DBC50
-            ? TryReadMountedDemonJumpContextState(
-                  &rootSkillId,
-                  &currentSkillId,
-                  nullptr)
-            : TryReadMountedDemonJumpEffectiveContextState(
-                  mountItemId,
-                  &rootSkillId,
-                  &currentSkillId);
-    const bool hasMatchingContext =
-        hasContext &&
-        rootSkillId == 30010110 &&
-        currentSkillId == childSkillId;
-    const bool hasRecentIntent =
+    if (!hadRecentIntent)
+    {
+        ObserveMountedDemonJumpIntent(mountItemId);
+    }
+
+    int afterRootSkillId = 0;
+    int afterCurrentSkillId = 0;
+    const bool hasPrimedContext = HasMountedDemonJumpContextPrimedForMount(
+        mountItemId,
+        &afterCurrentSkillId,
+        &afterRootSkillId);
+    const bool hasRecentIntentAfterArm =
         HasRecentMountedDemonJumpIntent(mountItemId, 250);
-    const bool resolveActive =
-        SkillOverlayBridgeIsMountedRuntimeDefinitionResolveActive();
-    const bool contextClearActive =
-        IsMountedDemonJumpContextClearActive();
-    const bool suppressIntentRearm =
-        contextClearActive ||
-        resolveActive;
-    const bool allowResolveSafeUpPrime =
-        resolveActive &&
-        !contextClearActive &&
-        childSkillId == 30010183 &&
-        hasRecentIntent &&
-        !isSkillLevel7DBC50Hook &&
-        !hasMatchingContext;
-    const bool shouldRefresh7DBC50UpIntentOnly =
-        !contextClearActive &&
-        childSkillId == 30010183 &&
-        hasRecentIntent &&
-        !hasMatchingContext &&
-        isSkillLevel7DBC50Hook &&
-        (callerRet == 0x00433B4C ||
-         callerRet == 0x00A04B7A ||
-         callerRet == 0x00AE0479);
-    const bool shouldRefreshResolveActiveUpIntentOnly =
-        resolveActive &&
-        shouldRefresh7DBC50UpIntentOnly;
-    bool primedFreshUpChildContext = false;
-    int primedFreshUpChildCurrentSkillId = 0;
 
-    if (shouldRefresh7DBC50UpIntentOnly &&
-        !shouldRefreshResolveActiveUpIntentOnly)
-    {
-        // v23.47 logs show the very first mounted jump can stall before the
-        // real B22630/575D60 path even begins because 7DBC50 keeps rearming
-        // full demon intent and re-priming the same up child dozens of times:
-        //   skip eager intent
-        //   reason=7DBC50 ... primed=1
-        // Preserve the fresh up-child probe and only refresh the narrow
-        // demon recent-intent tick here; let the later late-route hook do the
-        // actual prime exactly once closer to the native action chain.
-        ObserveMountedRuntimeSkillIntent(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId);
-        static LONG
-            s_mountedDemonJumpFreshChildPreserveGateIntentRefreshLogBudget =
-                48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpFreshChildPreserveGateIntentRefreshLogBudget) >=
-            0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpLevelSeed] %s caller=0x%08X query=%d lookup=%d mount=%d child=%d preserve-gate intent-refresh=1",
-                hookTag ? hookTag : "skill-level",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                childSkillId);
-        }
-    }
-    else if ((!hasRecentIntent || !hasMatchingContext) &&
-        (!suppressIntentRearm || allowResolveSafeUpPrime))
-    {
-        if (!suppressIntentRearm)
-        {
-            ObserveMountedDemonJumpIntent(
-                mountItemId,
-                hookTag ? hookTag : "skill-level-fresh-child");
-        }
-        if (childSkillId == 30010183 &&
-            !hasMatchingContext)
-        {
-            if (allowResolveSafeUpPrime)
-            {
-                int primedFreshUpChildRootSkillId = 0;
-                primedFreshUpChildContext =
-                    TryManualPrimeMountedDemonJumpContextResolveSafe(
-                        mountItemId,
-                        hookTag ? hookTag : "skill-level-up-child-resolve-safe",
-                        &primedFreshUpChildCurrentSkillId,
-                        &primedFreshUpChildRootSkillId);
-            }
-            else
-            {
-                primedFreshUpChildContext =
-                    PrimeMountedDemonJumpContextIfNeeded(
-                        mountItemId,
-                        hookTag ? hookTag : "skill-level-up-child",
-                        &primedFreshUpChildCurrentSkillId);
-            }
-        }
-    }
-    else if (shouldRefreshResolveActiveUpIntentOnly)
-    {
-        // Pure failure logs can stop at `7DBC50 remember child` without ever
-        // reaching 575D60/B22630. Refresh only the narrow demon recent-intent
-        // tick here so the next real up pair can still consume the fresh child
-        // without recursively forcing another prime inside the 7DBC50 hook.
-        ObserveMountedRuntimeSkillIntent(
-            MountedRuntimeSkillKind_DemonJump,
-            mountItemId);
-        static LONG s_mountedDemonJumpFreshChildResolveIntentRefreshLogBudget =
-            48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpFreshChildResolveIntentRefreshLogBudget) >=
-            0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpLevelSeed] %s caller=0x%08X query=%d lookup=%d mount=%d child=%d resolve-active intent-refresh=1",
-                hookTag ? hookTag : "skill-level",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                childSkillId);
-        }
-    }
-    else if (suppressIntentRearm)
-    {
-        static LONG s_mountedDemonJumpFreshChildSkipIntentLogBudget = 48;
-        if (InterlockedDecrement(
-                &s_mountedDemonJumpFreshChildSkipIntentLogBudget) >= 0)
-        {
-            WriteLogFmt(
-                "[MountDemonJumpLevelSeed] %s caller=0x%08X query=%d lookup=%d mount=%d child=%d recentMatch=%d intent=%d root=%d current=%d context=%d skip-intent-rearm=%s",
-                hookTag ? hookTag : "skill-level",
-                callerRet,
-                skillId,
-                lookupSkillId,
-                mountItemId,
-                childSkillId,
-                hasMatchingRecentChild ? 1 : 0,
-                hasRecentIntent ? 1 : 0,
-                hasContext ? rootSkillId : 0,
-                hasContext ? currentSkillId : 0,
-                hasContext ? 1 : 0,
-                resolveActive ? "resolve-active" : "context-clear");
-        }
-    }
-
-    static LONG s_mountedDemonJumpFreshChildLevelLookupLogBudget = 64;
+    static LONG s_mountedDemonJumpChildLevelIntentArmLogBudget = 48;
     if (InterlockedDecrement(
-            &s_mountedDemonJumpFreshChildLevelLookupLogBudget) >= 0)
+            &s_mountedDemonJumpChildLevelIntentArmLogBudget) >= 0)
     {
         WriteLogFmt(
-            "[MountDemonJumpLevelSeed] %s caller=0x%08X query=%d lookup=%d mount=%d child=%d recentMatch=%d intent=%d root=%d current=%d context=%d prime-up=%d primedCurrent=%d ctxRead=%s",
+            "[MountDemonJump] level child arm hook=%s caller=0x%08X query=%d lookup=%d child=%d mount=%d routeArm=%d liveContext=%d intentItem=%d recent=%d->%d cached=%d primed=%d root=%d current=%d",
             hookTag ? hookTag : "skill-level",
             callerRet,
             skillId,
             lookupSkillId,
-            mountItemId,
             childSkillId,
-            hasMatchingRecentChild ? 1 : 0,
-            hasRecentIntent ? 1 : 0,
-            hasContext ? rootSkillId : 0,
-            hasContext ? currentSkillId : 0,
-            hasContext ? 1 : 0,
-            primedFreshUpChildContext ? 1 : 0,
-            primedFreshUpChildContext
-                ? primedFreshUpChildCurrentSkillId
-                : 0,
-            shouldUseRawContextOnlyFor7DBC50 ? "raw" : "effective");
-    }
-}
-
-static void ObserveMountedDemonJumpGateProbeLevelLookup(
-    const char *hookTag,
-    const char *stageTag,
-    DWORD callerRet,
-    int skillId,
-    int lookupSkillId,
-    void *cachePtr,
-    int flags,
-    int rawResult,
-    int finalResult)
-{
-    int gateProbeMountItemId = 0;
-    if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
-            &gateProbeMountItemId,
-            400) ||
-        gateProbeMountItemId <= 0)
-    {
-        return;
+            mountItemId,
+            hasRouteArm ? 1 : 0,
+            hasLiveContext ? 1 : 0,
+            hasRecentIntentItem ? 1 : 0,
+            hadRecentIntent ? 1 : 0,
+            hasRecentIntentAfterArm ? 1 : 0,
+            hadMatchingRecentChildCache ? 1 : 0,
+            hasPrimedContext ? 1 : 0,
+            hasPrimedContext ? afterRootSkillId : 0,
+            hasPrimedContext ? afterCurrentSkillId : 0);
     }
 
-    int cacheEntrySkillId = 0;
-    const bool hasCacheEntrySkillId = TryReadMountedDemonJumpCacheEntrySkillId(
-        cachePtr,
-        &cacheEntrySkillId);
-
-    int resolvedMountItemId = 0;
-    int resolvedChildSkillId = 0;
-    const bool freshChildMatch =
-        TryResolveMountedDemonJumpFreshChildLevelLookup(
-            callerRet,
-            skillId,
-            lookupSkillId,
-            cachePtr,
-            &resolvedMountItemId,
-            &resolvedChildSkillId);
-
-    static LONG s_mountedDemonJumpGateProbeLevelLookupLogBudget = 160;
-    static DWORD s_lastLogTick = 0;
-    static DWORD s_lastCallerRet = 0;
-    static int s_lastSkillId = 0;
-    static int s_lastLookupSkillId = 0;
-    static int s_lastCacheEntrySkillId = 0;
-    static int s_lastFlags = 0;
-    static int s_lastFinalResult = 0;
-    static int s_lastStage = 0;
-    const DWORD nowTick = GetTickCount();
-    const int stageKey =
-        stageTag && lstrcmpA(stageTag, "post") == 0 ? 2 : 1;
-    if (callerRet == s_lastCallerRet &&
-        skillId == s_lastSkillId &&
-        lookupSkillId == s_lastLookupSkillId &&
-        cacheEntrySkillId == s_lastCacheEntrySkillId &&
-        flags == s_lastFlags &&
-        finalResult == s_lastFinalResult &&
-        stageKey == s_lastStage &&
-        nowTick - s_lastLogTick < 120)
-    {
-        return;
-    }
-
-    s_lastLogTick = nowTick;
-    s_lastCallerRet = callerRet;
-    s_lastSkillId = skillId;
-    s_lastLookupSkillId = lookupSkillId;
-    s_lastCacheEntrySkillId = cacheEntrySkillId;
-    s_lastFlags = flags;
-    s_lastFinalResult = finalResult;
-    s_lastStage = stageKey;
-
-    if (InterlockedDecrement(
-            &s_mountedDemonJumpGateProbeLevelLookupLogBudget) >= 0)
-    {
-        WriteLogFmt(
-            "[MountDemonJumpProbe] %s %s caller=0x%08X query=%d lookup=%d flags=%d cache=0x%08X entry=%d entryOk=%d raw=%d final=%d fresh=%d freshMount=%d freshChild=%d probeMount=%d",
-            hookTag ? hookTag : "skill-level",
-            stageTag ? stageTag : "unknown",
-            callerRet,
-            skillId,
-            lookupSkillId,
-            flags,
-            (DWORD)(uintptr_t)cachePtr,
-            cacheEntrySkillId,
-            hasCacheEntrySkillId ? 1 : 0,
-            rawResult,
-            finalResult,
-            freshChildMatch ? 1 : 0,
-            freshChildMatch ? resolvedMountItemId : 0,
-            freshChildMatch ? resolvedChildSkillId : 0,
-            gateProbeMountItemId);
-    }
+    --s_mountedDemonJumpChildLevelArmDepth;
+    return true;
 }
 
 static BOOL ResolveMountedRuntimeSkillNativeReleaseAllowBySkill(
@@ -24916,7 +21519,6 @@ static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
                              recentNativeSkillId) &&
                          TryResolveMountedDemonJumpProxyFallbackChildSkill(
                              recentNativeSkillId,
-                             hasMountedDemonContext ? demonContextSkillId : 0,
                              &rerouteDemonChildSkillId,
                              &rerouteDemonChildSource) &&
                          IsMountedDemonJumpRuntimeChildSkillId(
@@ -24947,41 +21549,6 @@ static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
                 IsMountedDemonJumpRuntimeChildSkillId(
                     rerouteDemonChildSkillId))
             {
-                const bool isGlideProxyRecentChildHijack =
-                    recentNativeSkillId == 23001002 &&
-                    rerouteDemonChildSkillId == 30010183 &&
-                    rerouteDemonChildSource &&
-                    strcmp(rerouteDemonChildSource, "recent-child-cache") == 0;
-                if (isGlideProxyRecentChildHijack)
-                {
-                    static LONG s_mountedUnknownSkillReleaseBranchDeferGlideRecentChildLogBudget =
-                        24;
-                    const LONG budgetAfterDecrement =
-                        InterlockedDecrement(
-                            &s_mountedUnknownSkillReleaseBranchDeferGlideRecentChildLogBudget);
-                    if (budgetAfterDecrement >= 0)
-                    {
-                        WriteLogFmt(
-                            "[MountDemonJump] B300AC defer glide recent-child root=%d recent=%d child=%d source=%s configured=%d mount=%d rootCtx=%d current=%d context=%d -> original-target(0x%08X)",
-                            skillId,
-                            recentNativeSkillId,
-                            rerouteDemonChildSkillId,
-                            rerouteDemonChildSource
-                                ? rerouteDemonChildSource
-                                : "unknown",
-                            configuredSkillId,
-                            resolvedMountItemId,
-                            demonContextRootSkillId,
-                            demonContextSkillId,
-                            hasMountedDemonContext ? 1 : 0,
-                            g_MountedUnknownSkillReleaseBranchOriginalTarget
-                                ? g_MountedUnknownSkillReleaseBranchOriginalTarget
-                                : ADDR_B30240);
-                    }
-                    return g_MountedUnknownSkillReleaseBranchOriginalTarget
-                               ? g_MountedUnknownSkillReleaseBranchOriginalTarget
-                               : ADDR_B30240;
-                }
                 RememberMountedDemonJumpNativeChildSkill(
                     resolvedMountItemId,
                     rerouteDemonChildSkillId,
@@ -25046,45 +21613,6 @@ static DWORD __cdecl hkMountedUnknownSkillReleaseBranchTargetB300AC(int skillId)
 
             if (isDemonChildRuntimeSkill)
             {
-                // v23.09 latest logs still show a failing early path:
-                // - B2F370 first observes proxy=23001002
-                // - B300AC immediately enters with skill=30010183 but recent=23001002
-                // - 52BCB0 returns 995xx and A9B710 re-reads current=30010110
-                //
-                // In the normal chain, the late child path (B22630/B1DB10) finishes
-                // first, then B300AC sees recent=30010183 and only then full-release
-                // succeeds. So keep this deferral extremely narrow: only mounted
-                // up-child 30010183, only while the "recent native release" is still
-                // the proxy 23001002. Let the original branch continue so the late
-                // path can arm the real child release inside the same jump.
-                if (skillId == 30010183 &&
-                    recentNativeSkillId == 23001002)
-                {
-                    static LONG s_mountedUnknownSkillReleaseBranchDeferProxyUpChildLogBudget =
-                        24;
-                    const LONG budgetAfterDecrement =
-                        InterlockedDecrement(
-                            &s_mountedUnknownSkillReleaseBranchDeferProxyUpChildLogBudget);
-                    if (budgetAfterDecrement >= 0)
-                    {
-                        WriteLogFmt(
-                            "[MountDemonJump] B300AC defer proxy-up child skill=%d recent=%d configured=%d mount=%d root=%d current=%d context=%d -> original-target(0x%08X)",
-                            skillId,
-                            recentNativeSkillId,
-                            configuredSkillId,
-                            resolvedMountItemId,
-                            demonContextRootSkillId,
-                            demonContextSkillId,
-                            hasMountedDemonContext ? 1 : 0,
-                            g_MountedUnknownSkillReleaseBranchOriginalTarget
-                                ? g_MountedUnknownSkillReleaseBranchOriginalTarget
-                                : ADDR_B30240);
-                    }
-                    return g_MountedUnknownSkillReleaseBranchOriginalTarget
-                               ? g_MountedUnknownSkillReleaseBranchOriginalTarget
-                               : ADDR_B30240;
-                }
-
                 RememberMountedDemonJumpNativeChildSkill(
                     resolvedMountItemId,
                     skillId,
@@ -25354,23 +21882,6 @@ static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWOR
     }
     TryPreseedMountedDemonJumpLevelCache(
         "7DA7D0",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr);
-    ObserveMountedDemonJumpGateProbeLevelLookup(
-        "7DA7D0",
-        "pre",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr,
-        -1,
-        0,
-        0);
-    ObserveMountedDemonJumpFreshChildLevelLookup(
-        "7DA7D0",
-        callerRet,
         skillId,
         lookupSkillId,
         cachePtr);
@@ -25406,22 +21917,6 @@ static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWOR
         WriteLogFmt("[SkillLevelHook] 7DA7D0 query=%d -> %d result=%d",
                     skillId, lookupSkillId, result);
     }
-    ObserveMountedDemonJumpFreshChildLevelLookup(
-        "7DA7D0",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr);
-    ObserveMountedDemonJumpGateProbeLevelLookup(
-        "7DA7D0",
-        "post",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr,
-        -1,
-        rawResult,
-        result);
     if (result <= 0)
     {
         int resolvedMountItemId = 0;
@@ -25484,6 +21979,12 @@ static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWOR
                         skillId, lookupSkillId, result);
         }
     }
+    TryArmMountedDemonJumpIntentFromChildLevelQuery(
+        "7DA7D0",
+        callerRet,
+        skillId,
+        lookupSkillId,
+        result);
     ObserveMountedDemonJumpLevelQueryCaller(
         "7DA7D0",
         callerRet,
@@ -25519,23 +22020,6 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
     }
     TryPreseedMountedDemonJumpLevelCache(
         "7DBC50",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr);
-    ObserveMountedDemonJumpGateProbeLevelLookup(
-        "7DBC50",
-        "pre",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr,
-        flags,
-        0,
-        0);
-    ObserveMountedDemonJumpFreshChildLevelLookup(
-        "7DBC50",
-        callerRet,
         skillId,
         lookupSkillId,
         cachePtr);
@@ -25578,22 +22062,6 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
                         skillId, lookupSkillId, flags, result);
         }
     }
-    ObserveMountedDemonJumpFreshChildLevelLookup(
-        "7DBC50",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr);
-    ObserveMountedDemonJumpGateProbeLevelLookup(
-        "7DBC50",
-        "post",
-        callerRet,
-        skillId,
-        lookupSkillId,
-        cachePtr,
-        flags,
-        rawResult,
-        result);
     if (result <= 0)
     {
         int resolvedMountItemId = 0;
@@ -25659,6 +22127,12 @@ static int __fastcall hkSkillLevelCurrent(void *thisPtr, void * /*edxUnused*/, D
                         skillId, lookupSkillId, flags, result);
         }
     }
+    TryArmMountedDemonJumpIntentFromChildLevelQuery(
+        "7DBC50",
+        callerRet,
+        skillId,
+        lookupSkillId,
+        result);
     ObserveMountedDemonJumpLevelQueryCaller(
         "7DBC50",
         callerRet,
@@ -26957,6 +23431,7 @@ static void __fastcall hkSkillPresentationDispatch(void *thisPtr, void * /*edxUn
     bool patchedSkillDataPtr = false;
     bool keepOverrideAfterDispatch = false;
     bool keepMountedDemonJumpChildVisual = false;
+    bool consumeMountedDemonJumpChildVisualAfterDispatch = false;
     static const int kSkillDataScanSlots = 12;
     int patchedSlots[kSkillDataScanSlots] = {};
     int patchedSlotCount = 0;
@@ -26994,14 +23469,34 @@ static void __fastcall hkSkillPresentationDispatch(void *thisPtr, void * /*edxUn
             // is the correct path for mounted glide as well.
             if (keepMountedDemonJumpChildVisual)
             {
+                int liveRootSkillId = 0;
+                int liveCurrentSkillId = 0;
+                const bool hasLiveContext =
+                    TryReadMountedDemonJumpContextState(
+                        &liveRootSkillId,
+                        &liveCurrentSkillId,
+                        nullptr);
+                const bool liveContextStillActive =
+                    hasLiveContext &&
+                    (liveRootSkillId == 30010110 ||
+                     liveCurrentSkillId == 30010110 ||
+                     IsMountedDemonJumpRuntimeChildSkillId(
+                         liveRootSkillId) ||
+                     IsMountedDemonJumpRuntimeChildSkillId(
+                         liveCurrentSkillId));
+                consumeMountedDemonJumpChildVisualAfterDispatch =
+                    !liveContextStillActive;
+
                 static LONG s_mountedDemonJumpPresentationKeepChildLogBudget = 24;
                 if (InterlockedDecrement(
                         &s_mountedDemonJumpPresentationKeepChildLogBudget) >= 0)
                 {
                     WriteLogFmt(
-                        "[MountDemonJump] ABAF70 keep child visual mount=%d skill=%d",
+                        "[MountDemonJump] ABAF70 keep child visual mount=%d skill=%d liveContext=%d consume=%d",
                         mountedDemonJumpPresentationMountItemId,
-                        mountedDemonJumpPresentationChildSkillId);
+                        mountedDemonJumpPresentationChildSkillId,
+                        liveContextStillActive ? 1 : 0,
+                        consumeMountedDemonJumpChildVisualAfterDispatch ? 1 : 0);
                 }
             }
             else if (desiredSkillId <= 0)
@@ -27079,6 +23574,14 @@ static void __fastcall hkSkillPresentationDispatch(void *thisPtr, void * /*edxUn
 
     if (oSkillPresentationDispatch)
         oSkillPresentationDispatch(thisPtr, skillData, a3, a4, a5, a6, a7);
+
+    if (consumeMountedDemonJumpChildVisualAfterDispatch &&
+        mountedDemonJumpPresentationMountItemId > 0)
+    {
+        ClearMountedDemonJumpPostPacketVisualChildSkill(
+            mountedDemonJumpPresentationMountItemId,
+            "ABAF70-postpacket-consume");
+    }
 
     // 始终恢复：skillData 指向的是游戏内部共享结构体，
     // 修改后不恢复会污染后续所有使用该 entry 的代码（包括原生技能释放的特效）。

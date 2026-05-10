@@ -32,6 +32,7 @@ namespace
     {
         bool numeric = false;
         bool largeText = false;
+        bool superSp = false;
         int pixelHeight = 0;
         int numericCellWidth = 0;
         int numericCellHeight = 0;
@@ -43,6 +44,8 @@ namespace
                 return numeric < other.numeric;
             if (largeText != other.largeText)
                 return largeText < other.largeText;
+            if (superSp != other.superSp)
+                return superSp < other.superSp;
             if (pixelHeight != other.pixelHeight)
                 return pixelHeight < other.pixelHeight;
             if (numericCellWidth != other.numericCellWidth)
@@ -235,6 +238,14 @@ namespace
 
     int ResolveDigitDisplayWidth(const TextStyleKey& style, wchar_t ch, int sourceWidth)
     {
+        if (style.superSp)
+        {
+            if (ch == L'1')
+                return 4;
+            const int maxDigitWidth = style.numericCellWidth > 0 ? style.numericCellWidth : 6;
+            return ClampInt(sourceWidth, 1, maxDigitWidth);
+        }
+
         if (ch == L'1')
             return 3;
 
@@ -631,6 +642,7 @@ namespace
         const bool superSpStyle = IsSuperSpStyleHint(text);
         style.numeric = superSpStyle || IsNumericLikeText(text);
         style.largeText = largeText && !style.numeric;
+        style.superSp = superSpStyle;
         style.pixelHeight = ResolvePixelHeight(style.numeric, fontSize);
         style.glyphSpacing = (int)floorf(glyphSpacing + 0.5f);
         if (style.numeric)

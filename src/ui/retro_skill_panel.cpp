@@ -2072,19 +2072,16 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
             for (const char* p = superSpValue; *p; ++p)
             {
                 const std::string superSpChar(1, *p);
+                (void)MeasureRetroTextWithStyleHint(
+                    kSuperSpStyleHint,
+                    superSpChar,
+                    superSpFontSizePx,
+                    superSpGlyphSpacing);
                 const ImVec2 charSize = MeasureRetroTextWithStyleHint(
                     kSuperSpStyleHint,
                     superSpChar,
                     superSpFontSizePx,
                     superSpGlyphSpacing);
-                if (*p == '1' && charSize.x > 0.0f && charSize.y > 0.0f)
-                {
-                    const float footY = floorf(superSpPos.y + charSize.y - 2.0f);
-                    const float footLeft = floorf(charX);
-                    const float footRight = floorf(charX + charSize.x);
-                    dl->AddLine(ImVec2(footLeft, footY), ImVec2(footRight, footY), kRetroPureBlackTextColor, 1.0f);
-                }
-
                 charX += charSize.x + superSpGlyphSpacing;
             }
         }
