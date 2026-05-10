@@ -2,7 +2,9 @@
 
 #include "core/Common.h"
 #include "core/GameAddresses.h"
+#include "runtime/feature_switches.h"
 #include "skill/skill_local_data.h"
+#include "skill/skill_packet_rewrite_router.h"
 #include "util/runtime_paths.h"
 
 #include <windows.h>
@@ -26,6 +28,7 @@ namespace
     const char* kSuperSkillConfigPath = "";
     const char* kNativeSkillInjectPath = "";
     std::vector<BYTE> g_outgoingPacketRewriteBuffer;
+    bool g_outgoingPacketRewriteRouterInitialized = false;
     enum CustomSkillPacketRoute
     {
         CustomSkillPacketRoute_None = 0,
@@ -439,7 +442,6 @@ namespace
     DWORD g_recentMountedMovementOverrideTick = 0;
     volatile LONG g_recentMountedRuntimeSkillRouteArmItemId[MountedRuntimeSkillKind_Count] = {0};
     volatile LONG g_recentMountedRuntimeSkillRouteArmTick[MountedRuntimeSkillKind_Count] = {0};
-    const bool kEnableMountedRuntimeSkillRouteArm = true;
     bool g_loggedMissingRouteConfig = false;
     bool g_loggedDuplicateRoutes = false;
     bool g_loggedMissingSuperSkillConfig = false;
@@ -451,6 +453,11 @@ namespace
     int g_lastResolvedPlayerJobId = 0;
     bool g_hasLastResolvedPlayerJobId = false;
     int g_lastOverlayConfiguredJobId = -1;
+
+    bool IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId featureId)
+    {
+        return ssw::runtime::IsFeatureEnabled(featureId);
+    }
     const DWORD kMissingConfigRetryIntervalMs = 3000;
     const DWORD kNativeReleaseContextTimeoutMs = 1200;
     const DWORD kNativeReleaseFollowupWindowMs = 450;
@@ -8886,6 +8893,8 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
     g_passiveEffectAttackCountGetterTickBySkillId.clear();
     g_loggedMissingSuperSkillConfig = false;
     g_loggedDuplicateSuperSkills = false;
+    ssw::runtime::ReloadFeatureSwitches();
+    g_outgoingPacketRewriteRouterInitialized = false;
     ClearPendingSuperSkillUpgradePacketRewrite();
     LoadSuperSkillRegistry();
     LoadCustomSkillRoutes();
@@ -8905,6 +8914,8 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
 
 void SkillOverlayBridgeShutdown()
 {
+    ssw::skill::ResetOutgoingPacketRewriteRouter();
+    g_outgoingPacketRewriteRouterInitialized = false;
     ClearPendingSuperSkillUpgradePacketRewrite();
     ClearCustomSkillRoutes();
     ClearSuperSkillRegistry();
@@ -10205,6 +10216,8 @@ DWORD SkillOverlayBridgeResolveNativeReleaseJumpTarget(int skillId)
 {
     if (skillId <= 0)
         return 0;
+    if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::SkillReleaseNativeRouteArm))
+        return 0;
 
     CustomSkillUseRoute route = {};
     int mountedCustomSkillId = 0;
@@ -10595,7 +10608,8 @@ namespace
         int* mountItemIdOut,
         DWORD maxAgeMs)
     {
-        if (!mountItemIdOut || !kEnableMountedRuntimeSkillRouteArm)
+        if (!mountItemIdOut ||
+            !IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedRuntimeRouteArm))
         {
             return false;
         }
@@ -10849,7 +10863,7 @@ namespace
         CustomSkillUseRoute& route,
         bool armRouteIntent)
     {
-        if (!kEnableMountedRuntimeSkillRouteArm)
+        if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedRuntimeRouteArm))
         {
             return false;
         }
@@ -10993,6 +11007,8 @@ int SkillOverlayBridgeResolveMountedDemonJumpSkillId(int mountItemId)
 bool SkillOverlayBridgeResolveMountedMovementOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
 {
     outOverride = MountedMovementOverride();
+    if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedMovementOverride))
+        return false;
 
     SuperSkillDefinition definition = {};
     if (!FindMountedMovementOverrideDefinition(mountItemId, tamingMobId, definition))
@@ -11006,6 +11022,8 @@ bool SkillOverlayBridgeResolveMountedMovementOverride(int mountItemId, int tamin
 bool SkillOverlayBridgeResolveMountedSoaringOverride(int mountItemId, int tamingMobId, MountedMovementOverride& outOverride)
 {
     outOverride = MountedMovementOverride();
+    if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedSoaringOverride))
+        return false;
     if (mountItemId <= 0 && tamingMobId <= 0)
         return false;
 
@@ -11844,17 +11862,15 @@ int SkillOverlayBridgeOverridePassiveEffectGetterValue(uintptr_t effectPtr, int 
     return changed ? overriddenValue : originalValue;
 }
 
-void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* packetLenSlot, uintptr_t callerRetAddr)
-{
-    if (!packetDataSlot || !packetLenSlot || !*packetDataSlot || *packetLenSlot < 8)
-        return;
-
-    BYTE* packet = static_cast<BYTE*>(*packetDataSlot);
-    int packetLen = *packetLenSlot;
-    const unsigned short opcode = ReadPacketWord(packet);
-
-    if (opcode == kClientCancelBuffPacketOpcode && packetLen >= 6)
+    bool TryHandleOutgoingIndependentBuffCancelRewrite(
+        BYTE* packet,
+        int packetLen,
+        uintptr_t callerRetAddr)
     {
+        const unsigned short opcode = ReadPacketWord(packet);
+        if (opcode != kClientCancelBuffPacketOpcode || packetLen < 6)
+            return false;
+
         const int cancelSkillId = ReadPacketInt(packet, 2);
         const DWORD now = GetTickCount();
         int rewrittenCancelSkillId = cancelSkillId;
@@ -11886,6 +11902,7 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
                     rewrittenCancelSkillId = definition.skillId;
             }
         }
+
         if (matchedIndependentBuff && rewrittenCancelSkillId != cancelSkillId)
         {
             WritePacketInt(packet, 2, rewrittenCancelSkillId);
@@ -11902,165 +11919,262 @@ void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* 
                 packetLen,
                 (DWORD)(uintptr_t)callerRetAddr);
         }
+        return matchedIndependentBuff;
     }
 
-    if (TryRewritePendingSuperSkillUpgradePacket(packet, packetLen, opcode, callerRetAddr))
-        return;
-
-    int skillIdOffset = -1;
-    int skillLevelOffset = -1;
-    const CustomSkillPacketRoute packetRoute = ResolvePacketRoute(opcode, skillIdOffset, skillLevelOffset);
-    if (packetRoute == CustomSkillPacketRoute_None)
+    bool TryHandleOutgoingObservedSkillPacketRewritePipeline(
+        void** packetDataSlot,
+        int* packetLenSlot,
+        uintptr_t callerRetAddr)
     {
-        TryLogUnmappedCustomSkillPacket(packet, packetLen, opcode, callerRetAddr);
-        return;
-    }
+        if (!packetDataSlot || !packetLenSlot || !*packetDataSlot || *packetLenSlot < 8)
+            return false;
 
-    if (skillIdOffset < 0 || packetLen < skillIdOffset + 4)
-        return;
+        BYTE* packet = static_cast<BYTE*>(*packetDataSlot);
+        int packetLen = *packetLenSlot;
+        const unsigned short opcode = ReadPacketWord(packet);
 
-    const int observedSkillId = ReadPacketInt(packet, skillIdOffset);
-    if (observedSkillId <= 0)
-        return;
+        int skillIdOffset = -1;
+        int skillLevelOffset = -1;
+        const CustomSkillPacketRoute packetRoute = ResolvePacketRoute(opcode, skillIdOffset, skillLevelOffset);
+        if (packetRoute == CustomSkillPacketRoute_None)
+        {
+            TryLogUnmappedCustomSkillPacket(packet, packetLen, opcode, callerRetAddr);
+            return false;
+        }
 
-    int observedLevel = 0;
-    if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
-        observedLevel = packet[skillLevelOffset];
+        if (skillIdOffset < 0 || packetLen < skillIdOffset + 4)
+            return false;
 
-    if (ShouldLogObservedSkillPacket(observedSkillId))
-    {
-        WriteLogFmt("[SkillPacket] observe opcode=0x%X route=%s skillId=%d level=%d len=%d caller=0x%08X",
-            (unsigned int)opcode,
-            PacketRouteToString(packetRoute),
-            observedSkillId,
-            observedLevel,
-            packetLen,
-            (DWORD)(uintptr_t)callerRetAddr);
-    }
+        const int observedSkillId = ReadPacketInt(packet, skillIdOffset);
+        if (observedSkillId <= 0)
+            return false;
 
-    LogConfiguredPassiveSemanticBonusesForSkill(
-        observedSkillId,
-        packetRoute,
-        opcode,
-        callerRetAddr);
-    if (ResolveConfiguredPassiveDamagePercentBonusForSkill(observedSkillId) != 0 ||
-        ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(observedSkillId) != 0 ||
-        ResolveConfiguredPassiveAttackCountBonusForSkill(observedSkillId) != 0 ||
-        ResolveConfiguredPassiveMobCountBonusForSkill(observedSkillId) != 0)
-    {
-        RememberRecentPassiveAttackProbe(observedSkillId);
-    }
+        int observedLevel = 0;
+        if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
+            observedLevel = packet[skillLevelOffset];
 
-    int independentBuffSkillId = 0;
-    if (TryResolveObservedIndependentBuffSkillId(observedSkillId, packetRoute, independentBuffSkillId))
-    {
-        MarkRecentIndependentBuffManualUse(
-            independentBuffSkillId,
+        if (ShouldLogObservedSkillPacket(observedSkillId))
+        {
+            WriteLogFmt("[SkillPacket] observe opcode=0x%X route=%s skillId=%d level=%d len=%d caller=0x%08X",
+                (unsigned int)opcode,
+                PacketRouteToString(packetRoute),
+                observedSkillId,
+                observedLevel,
+                packetLen,
+                (DWORD)(uintptr_t)callerRetAddr);
+        }
+
+        LogConfiguredPassiveSemanticBonusesForSkill(
             observedSkillId,
             packetRoute,
             opcode,
             callerRetAddr);
-    }
-
-    std::vector<BYTE> expandedPacket;
-    if (TryApplyConfiguredPassiveAttackCountPacketExpansion(
-            packet,
-            packetLen,
-            packetRoute,
-            skillIdOffset,
-            observedSkillId,
-            callerRetAddr,
-            opcode,
-            expandedPacket))
-    {
-        g_outgoingPacketRewriteBuffer.swap(expandedPacket);
-        *packetDataSlot = g_outgoingPacketRewriteBuffer.empty()
-            ? *packetDataSlot
-            : &g_outgoingPacketRewriteBuffer[0];
-        *packetLenSlot = (int)g_outgoingPacketRewriteBuffer.size();
-        packet = static_cast<BYTE*>(*packetDataSlot);
-        packetLen = *packetLenSlot;
-    }
-
-    TryApplyConfiguredPassiveDamagePacketRewrite(
-        packet,
-        packetLen,
-        packetRoute,
-        skillIdOffset,
-        observedSkillId,
-        callerRetAddr,
-        opcode);
-
-    if (TryRewritePacketFromActiveNativeRelease(
-            packet,
-            packetLen,
-            packetRoute,
-            skillIdOffset,
-            skillLevelOffset,
-            observedSkillId,
-            callerRetAddr,
-            opcode))
-    {
-        return;
-    }
-
-    if (packetRoute == CustomSkillPacketRoute_SpecialMove)
-    {
-        int mountedCustomSkillId = 0;
-        int mountItemId = 0;
-        if (TryResolveMountedRuntimeProxyCustomSkillId(
-                observedSkillId,
-                MountedRuntimeSkillKind_DemonJump,
-                mountedCustomSkillId,
-                &mountItemId))
+        if (ResolveConfiguredPassiveDamagePercentBonusForSkill(observedSkillId) != 0 ||
+            ResolveConfiguredPassiveIgnoreDefensePercentBonusForSkill(observedSkillId) != 0 ||
+            ResolveConfiguredPassiveAttackCountBonusForSkill(observedSkillId) != 0 ||
+            ResolveConfiguredPassiveMobCountBonusForSkill(observedSkillId) != 0)
         {
-            WritePacketInt(packet, skillIdOffset, mountedCustomSkillId);
-
-            int customLevel = GetTrackedSkillLevel(mountedCustomSkillId);
-            if (customLevel <= 0)
-                customLevel = 1;
-            if (customLevel > 255)
-                customLevel = 255;
-
-            if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
-                packet[skillLevelOffset] = (BYTE)customLevel;
-
-            WriteLogFmt("[SkillPacket] mounted-runtime rewrite opcode=0x%X route=%s proxy=%d -> custom=%d mount=%d level=%d len=%d caller=0x%08X",
-                (unsigned int)opcode,
-                PacketRouteToString(packetRoute),
-                observedSkillId,
-                mountedCustomSkillId,
-                mountItemId,
-                customLevel,
-                packetLen,
-                (DWORD)(uintptr_t)callerRetAddr);
-            return;
+            RememberRecentPassiveAttackProbe(observedSkillId);
         }
+
+        int independentBuffSkillId = 0;
+        if (TryResolveObservedIndependentBuffSkillId(observedSkillId, packetRoute, independentBuffSkillId))
+        {
+            MarkRecentIndependentBuffManualUse(
+                independentBuffSkillId,
+                observedSkillId,
+                packetRoute,
+                opcode,
+                callerRetAddr);
+        }
+
+        if (IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketPassiveAttackExpansion))
+        {
+            std::vector<BYTE> expandedPacket;
+            if (TryApplyConfiguredPassiveAttackCountPacketExpansion(
+                    packet,
+                    packetLen,
+                    packetRoute,
+                    skillIdOffset,
+                    observedSkillId,
+                    callerRetAddr,
+                    opcode,
+                    expandedPacket))
+            {
+                g_outgoingPacketRewriteBuffer.swap(expandedPacket);
+                *packetDataSlot = g_outgoingPacketRewriteBuffer.empty()
+                    ? *packetDataSlot
+                    : &g_outgoingPacketRewriteBuffer[0];
+                *packetLenSlot = (int)g_outgoingPacketRewriteBuffer.size();
+                packet = static_cast<BYTE*>(*packetDataSlot);
+                packetLen = *packetLenSlot;
+            }
+        }
+
+        if (IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketPassiveDamageRewrite))
+        {
+            TryApplyConfiguredPassiveDamagePacketRewrite(
+                packet,
+                packetLen,
+                packetRoute,
+                skillIdOffset,
+                observedSkillId,
+                callerRetAddr,
+                opcode);
+        }
+
+        if (IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketActiveNativeReleaseRewrite) &&
+            TryRewritePacketFromActiveNativeRelease(
+                packet,
+                packetLen,
+                packetRoute,
+                skillIdOffset,
+                skillLevelOffset,
+                observedSkillId,
+                callerRetAddr,
+                opcode))
+        {
+            return true;
+        }
+
+        if (packetRoute == CustomSkillPacketRoute_SpecialMove &&
+            IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketMountedRuntimeSpecialMoveRewrite))
+        {
+            int mountedCustomSkillId = 0;
+            int mountItemId = 0;
+            if (TryResolveMountedRuntimeProxyCustomSkillId(
+                    observedSkillId,
+                    MountedRuntimeSkillKind_DemonJump,
+                    mountedCustomSkillId,
+                    &mountItemId))
+            {
+                WritePacketInt(packet, skillIdOffset, mountedCustomSkillId);
+
+                int customLevel = GetTrackedSkillLevel(mountedCustomSkillId);
+                if (customLevel <= 0)
+                    customLevel = 1;
+                if (customLevel > 255)
+                    customLevel = 255;
+
+                if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
+                    packet[skillLevelOffset] = (BYTE)customLevel;
+
+                WriteLogFmt("[SkillPacket] mounted-runtime rewrite opcode=0x%X route=%s proxy=%d -> custom=%d mount=%d level=%d len=%d caller=0x%08X",
+                    (unsigned int)opcode,
+                    PacketRouteToString(packetRoute),
+                    observedSkillId,
+                    mountedCustomSkillId,
+                    mountItemId,
+                    customLevel,
+                    packetLen,
+                    (DWORD)(uintptr_t)callerRetAddr);
+                return true;
+            }
+        }
+
+        if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketProxyRouteRewrite))
+            return false;
+
+        CustomSkillUseRoute route = {};
+        if (!FindRouteByProxySkillId(observedSkillId, packetRoute, route))
+            return false;
+
+        WritePacketInt(packet, skillIdOffset, route.skillId);
+
+        int customLevel = GetTrackedSkillLevel(route.skillId);
+        if (customLevel <= 0)
+            customLevel = 1;
+        if (customLevel > 255)
+            customLevel = 255;
+
+        if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
+            packet[skillLevelOffset] = (BYTE)customLevel;
+
+        WriteLogFmt("[SkillPacket] rewrite opcode=0x%X route=%s proxy=%d -> custom=%d level=%d len=%d caller=0x%08X",
+            (unsigned int)opcode,
+            PacketRouteToString(packetRoute),
+            observedSkillId,
+            route.skillId,
+            customLevel,
+            packetLen,
+            (DWORD)(uintptr_t)callerRetAddr);
+        return true;
+    }
+    ssw::skill::OutgoingPacketRewriteControl HandleOutgoingPacketIndependentBuffCancelRewrite(
+    ssw::skill::OutgoingPacketRewriteContext* context)
+    {
+        if (!context || !context->packetDataSlot || !context->packetLenSlot || !*context->packetDataSlot)
+            return ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
+
+        BYTE* packet = static_cast<BYTE*>(*context->packetDataSlot);
+        const int packetLen = *context->packetLenSlot;
+        TryHandleOutgoingIndependentBuffCancelRewrite(packet, packetLen, context->callerRetAddr);
+        return ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
     }
 
-    CustomSkillUseRoute route = {};
-    if (!FindRouteByProxySkillId(observedSkillId, packetRoute, route))
+    ssw::skill::OutgoingPacketRewriteControl HandleOutgoingPacketSuperSkillUpgradeRewrite(
+    ssw::skill::OutgoingPacketRewriteContext* context)
+    {
+        if (!context || !context->packetDataSlot || !context->packetLenSlot || !*context->packetDataSlot)
+            return ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
+
+        BYTE* packet = static_cast<BYTE*>(*context->packetDataSlot);
+        const int packetLen = *context->packetLenSlot;
+        const unsigned short opcode = ReadPacketWord(packet);
+        if (TryRewritePendingSuperSkillUpgradePacket(packet, packetLen, opcode, context->callerRetAddr))
+            return ssw::skill::OutgoingPacketRewriteControl::StopProcessing;
+        return ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
+    }
+
+    ssw::skill::OutgoingPacketRewriteControl HandleOutgoingPacketSkillRoutePipeline(
+    ssw::skill::OutgoingPacketRewriteContext* context)
+    {
+        if (!context)
+            return ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
+
+        const bool rewritten = TryHandleOutgoingObservedSkillPacketRewritePipeline(
+            context->packetDataSlot,
+            context->packetLenSlot,
+            context->callerRetAddr);
+        return rewritten
+            ? ssw::skill::OutgoingPacketRewriteControl::StopProcessing
+            : ssw::skill::OutgoingPacketRewriteControl::ContinueProcessing;
+    }
+
+    void InitializeOutgoingPacketRewriteRouter()
+    {
+        ssw::skill::ResetOutgoingPacketRewriteRouter();
+        ssw::skill::RegisterOutgoingPacketRewriteHandler(
+            "independent-buff-cancel",
+            ssw::runtime::FeatureSwitchId::PacketIndependentBuffCancelRewrite,
+            HandleOutgoingPacketIndependentBuffCancelRewrite);
+        ssw::skill::RegisterOutgoingPacketRewriteHandler(
+            "super-skill-upgrade",
+            ssw::runtime::FeatureSwitchId::PacketSuperSkillUpgradeRewrite,
+            HandleOutgoingPacketSuperSkillUpgradeRewrite);
+        ssw::skill::RegisterOutgoingPacketRewriteHandler(
+            "skill-route-pipeline",
+            ssw::runtime::FeatureSwitchId::PacketRewritePipeline,
+            HandleOutgoingPacketSkillRoutePipeline);
+    }
+
+void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* packetLenSlot, uintptr_t callerRetAddr)
+{
+    if (!packetDataSlot || !packetLenSlot || !*packetDataSlot || *packetLenSlot < 8)
         return;
 
-    WritePacketInt(packet, skillIdOffset, route.skillId);
+    if (!g_outgoingPacketRewriteRouterInitialized)
+    {
+        InitializeOutgoingPacketRewriteRouter();
+        g_outgoingPacketRewriteRouterInitialized = true;
+    }
 
-    int customLevel = GetTrackedSkillLevel(route.skillId);
-    if (customLevel <= 0)
-        customLevel = 1;
-    if (customLevel > 255)
-        customLevel = 255;
-
-    if (skillLevelOffset >= 0 && packetLen > skillLevelOffset)
-        packet[skillLevelOffset] = (BYTE)customLevel;
-
-    WriteLogFmt("[SkillPacket] rewrite opcode=0x%X route=%s proxy=%d -> custom=%d level=%d len=%d caller=0x%08X",
-        (unsigned int)opcode,
-        PacketRouteToString(packetRoute),
-        observedSkillId,
-        route.skillId,
-        customLevel,
-        packetLen,
-        (DWORD)(uintptr_t)callerRetAddr);
+    ssw::skill::OutgoingPacketRewriteContext context;
+    context.packetDataSlot = packetDataSlot;
+    context.packetLenSlot = packetLenSlot;
+    context.callerRetAddr = callerRetAddr;
+    ssw::skill::DispatchOutgoingPacketRewrite(&context);
 }
 
 void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, uintptr_t callerRetAddr)
@@ -12069,7 +12183,6 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
     int mutablePacketLen = packetLen;
     SkillOverlayBridgeInspectOutgoingPacketMutable(&mutablePacketData, &mutablePacketLen, callerRetAddr);
 }
-
     void TryRewriteIndependentBuffGivePacket(BYTE* payload, int payloadLen, uintptr_t callerRetAddr)
     {
         if (!payload || payloadLen < kBuffMaskByteCount + 2 + 4)

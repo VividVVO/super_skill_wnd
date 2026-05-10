@@ -50,10 +50,12 @@ if errorlevel 1 (
     echo /Fo"build\Debug\\"
     echo src\dllmain.cpp
     echo src\hook\win32_input_spoof.cpp
+    echo src\runtime\feature_switches.cpp
     echo src\runtime\init_pipeline.cpp
     echo src\runtime\cleanup_pipeline.cpp
     echo src\util\runtime_paths.cpp
     echo src\skill\skill_local_data.cpp
+    echo src\skill\skill_packet_rewrite_router.cpp
     echo src\skill\skill_overlay_source.cpp
     echo src\skill\skill_overlay_source_manager.cpp
     echo src\skill\skill_overlay_source_game.cpp
@@ -94,10 +96,12 @@ if errorlevel 1 (
     echo /OUT:"build\Debug\SS.dll"
     echo build\Debug\dllmain.obj
     echo build\Debug\win32_input_spoof.obj
+    echo build\Debug\feature_switches.obj
     echo build\Debug\init_pipeline.obj
     echo build\Debug\cleanup_pipeline.obj
     echo build\Debug\runtime_paths.obj
     echo build\Debug\skill_local_data.obj
+    echo build\Debug\skill_packet_rewrite_router.obj
     echo build\Debug\skill_overlay_source.obj
     echo build\Debug\skill_overlay_source_manager.obj
     echo build\Debug\skill_overlay_source_game.obj

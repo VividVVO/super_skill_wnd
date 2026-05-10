@@ -21,6 +21,7 @@
 #include "d3d8/d3d8_renderer.h"
 #include "runtime/init_pipeline.h"
 #include "runtime/cleanup_pipeline.h"
+#include "runtime/feature_switches.h"
 #include <algorithm>
 #include <cwchar>
 #include <intrin.h>
@@ -168,9 +169,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v23.61-2026-05-10-mounted-up-latch-preserve";
+static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin";
 #else
-static const char* BUILD_MARKER = "v23.61-2026-05-10-mounted-up-latch-preserve";
+static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin";
 #endif
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
