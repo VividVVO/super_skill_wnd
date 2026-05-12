@@ -363,8 +363,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID)
     if (dwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         g_hModule = hModule;
+#if SSW_ENABLE_RUNTIME_LOGS
         FILE* f = fopen(LOG_FILE, "w");
-    if (f) { fprintf(f, "=== SuperSkillWnd v14.9 (ImGui Overlay Panel) ===\n"); fclose(f); }
+        if (f) { fprintf(f, "=== SuperSkillWnd v14.9 (ImGui Overlay Panel) ===\n"); fclose(f); }
+#endif
         char dllPath[MAX_PATH] = {};
         if (GetModuleFileNameA(hModule, dllPath, MAX_PATH) > 0) {
             WriteLogFmt("[Build] module=%s", dllPath);

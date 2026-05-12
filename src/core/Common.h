@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <cstdio>
+#include <cstdarg>
 #include <cstdint>
 #include <cstring>
 
@@ -50,35 +51,55 @@ inline bool SafeIsBadWritePtr(void* ptr, size_t size)
 #define LOG_FILE "C:\\SuperSkillWnd.log"
 #endif
 
+#ifndef SSW_ENABLE_RUNTIME_LOGS
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+#define SSW_ENABLE_RUNTIME_LOGS 1
+#else
+#define SSW_ENABLE_RUNTIME_LOGS 0
+#endif
+#endif
+
+#ifndef SSW_ENABLE_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_DIAGNOSTIC_LOGS 0
+#endif
+
 inline void WriteLog(const char* msg)
 {
+#if SSW_ENABLE_RUNTIME_LOGS
     FILE* f = fopen(LOG_FILE, "a");
     if (f) { fprintf(f, "%s\n", msg); fclose(f); }
+#else
+    (void)msg;
+#endif
 }
 
 inline void WriteLogFmt(const char* fmt, ...)
 {
+#if SSW_ENABLE_RUNTIME_LOGS
     char buf[512];
     va_list args;
     va_start(args, fmt);
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     WriteLog(buf);
+#else
+    (void)fmt;
+#endif
 }
 
 inline bool EnableIndependentBuffOverlayDiagnosticLogs()
 {
-    return false;
+    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
 }
 
 inline bool EnableAbilityRedDiagnosticLogs()
 {
-    return true;
+    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
 }
 
 inline bool EnableSuperSkillSyncStateDiagnosticLogs()
 {
-    return false;
+    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
 }
 
 inline void HardenPixelArtAlphaEdgesRgba(
