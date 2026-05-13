@@ -58,10 +58,11 @@ bool SuperRuntimeRunInstallPipeline(
 
     WriteLog("[NativeText] disabled: using self renderer");
 
-    bool childDrawHookOk = true;
-    bool moveHookOk = true;
-    bool refreshHookOk = true;
-    if (!options.enableImguiOverlayPanel)
+    const bool routeBHooksRequested = !options.enableImguiOverlayPanel;
+    bool childDrawHookOk = !routeBHooksRequested;
+    bool moveHookOk = !routeBHooksRequested;
+    bool refreshHookOk = !routeBHooksRequested;
+    if (routeBHooksRequested)
     {
         childDrawHookOk = callbacks.setupSuperChildDrawHook && callbacks.setupSuperChildDrawHook();
         moveHookOk = callbacks.setupSkillWndMoveHook && callbacks.setupSkillWndMoveHook();
@@ -98,7 +99,7 @@ bool SuperRuntimeRunInstallPipeline(
     if (outResult)
     {
         outResult->isD3D8Mode = options.isD3D8Mode;
-        outResult->superChildHooksReady = childDrawHookOk && moveHookOk && refreshHookOk;
+        outResult->superChildHooksReady = routeBHooksRequested && childDrawHookOk && moveHookOk && refreshHookOk;
     }
 
     return true;

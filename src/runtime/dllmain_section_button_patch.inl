@@ -1321,7 +1321,7 @@ static bool ComputeSuperPanelPos(int* outX, int* outY, const char** outSrc)
     bool hasCom = g_SkillWndThis && GetSkillWndComPos(g_SkillWndThis, &comX, &comY);
     bool hasVt  = g_SkillWndThis && GetSkillWndAnchorPos(g_SkillWndThis, &vtX, &vtY);
 
-    if (ENABLE_IMGUI_OVERLAY_PANEL) {
+    if (UseImguiOverlayPanelRuntime()) {
         if (hasVt) {
             if (hasCom && s_decisionLogCount < 80) {
                 int dx = vtX - comX; if (dx < 0) dx = -dx;

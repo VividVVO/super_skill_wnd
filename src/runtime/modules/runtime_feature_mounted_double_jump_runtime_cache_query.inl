@@ -7,6 +7,9 @@
     int rawResult,
     int finalResult)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+        return;
+
     if (!IsMountedDemonJumpRelatedSkillId(skillId) &&
         !IsMountedDemonJumpRelatedSkillId(lookupSkillId))
     {

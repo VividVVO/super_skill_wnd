@@ -5,6 +5,9 @@
     void *cachePtr,
     int mountItemId)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+        return false;
+
     if (!cachePtr ||
         mountItemId <= 0 ||
         SafeIsBadWritePtr(cachePtr, sizeof(uintptr_t)) ||

@@ -53,12 +53,14 @@ namespace
         {FeatureSwitchId::MountMovementObservationHooks, "runtime.mount.movementObservationHooks", false},
         {FeatureSwitchId::MountedFlightPhysicsSpeedHooks, "runtime.mount.flightPhysicsSpeedHooks", false},
         {FeatureSwitchId::MountMovementCapPatches, "runtime.mount.movementCapPatches", false},
+        {FeatureSwitchId::DiagnosticCrashCapture, "runtime.diagnostics.crashCapture", true},
     };
 
     bool g_featureSwitchesLoaded = false;
     std::vector<FeatureSwitchState> g_featureSwitchStates;
     std::wstring g_loadedFeatureSwitchPath;
-    FeatureSwitchReloadCallback g_featureSwitchReloadCallback = nullptr;
+    FeatureSwitchReloadCallback g_featureSwitchReloadCallbacks[8] = {};
+    size_t g_featureSwitchReloadCallbackCount = 0;
     bool g_featureSwitchReloadCallbackActive = false;
     bool g_loggedFeatureSwitchPackagePending = false;
 
@@ -161,26 +163,52 @@ namespace
         if (g_featureSwitchesLoaded)
             return;
 
+        WriteLog("[InitStage] enter EnsureFeatureSwitchesLoaded");
+
         g_featureSwitchesLoaded = true;
+        WriteLog("[InitStage] EnsureFeatureSwitchesLoaded set loaded=true");
         ResetFeatureSwitchStatesToDefaults();
+        WriteLogFmt(
+            "[InitStage] after ResetFeatureSwitchStatesToDefaults count=%u",
+            (unsigned int)g_featureSwitchStates.size());
+
+        const std::wstring dllDir = ssw::path::GetHookDllDirectory();
+        const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
+        const std::wstring skillDir = ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
         g_loadedFeatureSwitchPath = ResolveFeatureSwitchConfigPath();
+        WriteLogFmt(
+            "[InitStage] feature path dllDir=%s rootDir=%s skillDir=%s path=%s",
+            ssw::path::WideToUtf8(dllDir).c_str(),
+            ssw::path::WideToUtf8(rootDir).c_str(),
+            ssw::path::WideToUtf8(skillDir).c_str(),
+            ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
 
         std::string json;
+        WriteLog("[InitStage] before ReadUtf8TextFile primary");
         if (!ReadUtf8TextFile(g_loadedFeatureSwitchPath, json))
         {
-            const std::wstring dllDir = ssw::path::GetHookDllDirectory();
-            const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
-            const std::wstring skillDir = ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
+            WriteLog("[InitStage] ReadUtf8TextFile primary failed");
             const std::wstring legacyPath = ssw::path::Combine(skillDir, L"module_switches.json");
+            WriteLogFmt(
+                "[InitStage] legacy feature path=%s",
+                ssw::path::WideToUtf8(legacyPath).c_str());
+            WriteLog("[InitStage] before ReadUtf8TextFile legacy");
             if (_wcsicmp(legacyPath.c_str(), g_loadedFeatureSwitchPath.c_str()) != 0 &&
                 ReadUtf8TextFile(legacyPath, json))
             {
                 g_loadedFeatureSwitchPath = legacyPath;
+                WriteLogFmt(
+                    "[InitStage] ReadUtf8TextFile legacy succeeded bytes=%u",
+                    (unsigned int)json.size());
             }
             else
             {
+                WriteLog("[InitStage] before IsSkillConfigPackageRuntimePasswordPending");
                 const bool packagePasswordPending =
                     ssw::skillpack::IsSkillConfigPackageRuntimePasswordPending(skillDir);
+                WriteLogFmt(
+                    "[InitStage] after IsSkillConfigPackageRuntimePasswordPending pending=%d",
+                    packagePasswordPending ? 1 : 0);
                 if (packagePasswordPending)
                 {
                     if (!g_loggedFeatureSwitchPackagePending)
@@ -191,14 +219,22 @@ namespace
                         g_loggedFeatureSwitchPackagePending = true;
                     }
                     g_featureSwitchesLoaded = false;
+                    WriteLog("[InitStage] leave EnsureFeatureSwitchesLoaded pending-runtime-password");
                     return;
                 }
 
                 WriteLogFmt(
                     "[FeatureSwitch] config missing, using disabled defaults path=%s",
                     ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
+                WriteLog("[InitStage] leave EnsureFeatureSwitchesLoaded missing-config");
                 return;
             }
+        }
+        else
+        {
+            WriteLogFmt(
+                "[InitStage] ReadUtf8TextFile primary succeeded bytes=%u",
+                (unsigned int)json.size());
         }
 
         int overrideCount = 0;
@@ -234,6 +270,9 @@ namespace
                 state.value ? 1 : 0,
                 def.defaultValue ? 1 : 0);
         }
+        WriteLogFmt(
+            "[InitStage] leave EnsureFeatureSwitchesLoaded overrides=%d",
+            overrideCount);
     }
 } // namespace
 
@@ -254,24 +293,56 @@ bool IsFeatureEnabled(FeatureSwitchId id)
 
 void ReloadFeatureSwitches()
 {
+    WriteLog("[InitStage] enter ReloadFeatureSwitches");
+    WriteLog("[InitStage] before InvalidateSkillConfigPackage");
     ssw::skillpack::InvalidateSkillConfigPackage();
+    WriteLog("[InitStage] after InvalidateSkillConfigPackage");
     g_featureSwitchesLoaded = false;
+    WriteLog("[InitStage] after g_featureSwitchesLoaded=false");
     g_loadedFeatureSwitchPath.clear();
+    WriteLog("[InitStage] after g_loadedFeatureSwitchPath.clear");
     g_featureSwitchStates.clear();
+    WriteLog("[InitStage] after g_featureSwitchStates.clear");
     EnsureFeatureSwitchesLoaded();
+    WriteLog("[InitStage] after EnsureFeatureSwitchesLoaded");
 
-    FeatureSwitchReloadCallback callback = g_featureSwitchReloadCallback;
-    if (callback && !g_featureSwitchReloadCallbackActive)
+    if (g_featureSwitchReloadCallbackCount > 0 && !g_featureSwitchReloadCallbackActive)
     {
         g_featureSwitchReloadCallbackActive = true;
-        callback();
+        for (size_t i = 0; i < g_featureSwitchReloadCallbackCount; ++i)
+        {
+            FeatureSwitchReloadCallback callback = g_featureSwitchReloadCallbacks[i];
+            if (callback)
+                callback();
+        }
         g_featureSwitchReloadCallbackActive = false;
     }
+    WriteLog("[InitStage] leave ReloadFeatureSwitches");
 }
 
 void SetFeatureSwitchReloadCallback(FeatureSwitchReloadCallback callback)
 {
-    g_featureSwitchReloadCallback = callback;
+    if (!callback)
+    {
+        for (size_t i = 0; i < sizeof(g_featureSwitchReloadCallbacks) / sizeof(g_featureSwitchReloadCallbacks[0]); ++i)
+            g_featureSwitchReloadCallbacks[i] = nullptr;
+        g_featureSwitchReloadCallbackCount = 0;
+        return;
+    }
+
+    for (size_t i = 0; i < g_featureSwitchReloadCallbackCount; ++i)
+    {
+        if (g_featureSwitchReloadCallbacks[i] == callback)
+            return;
+    }
+
+    if (g_featureSwitchReloadCallbackCount >= sizeof(g_featureSwitchReloadCallbacks) / sizeof(g_featureSwitchReloadCallbacks[0]))
+    {
+        WriteLog("[FeatureSwitch] reload callback table full");
+        return;
+    }
+
+    g_featureSwitchReloadCallbacks[g_featureSwitchReloadCallbackCount++] = callback;
 }
 
 } // namespace runtime

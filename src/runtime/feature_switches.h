@@ -29,6 +29,7 @@ enum class FeatureSwitchId
     MountMovementObservationHooks,            // 骑宠移动观测
     MountedFlightPhysicsSpeedHooks,          // 骑宠飞行物理速度
     MountMovementCapPatches,                 // 骑宠移动 cap patch
+    DiagnosticCrashCapture,                  // 进程级崩溃捕获与 minidump
     Count
 };
 

@@ -13,7 +13,6 @@
 #include <cstring>
 #include <cwctype>
 #include <map>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -96,8 +95,21 @@ namespace
             passwords.push_back(password);
     }
 
-    std::mutex g_stateMutex;
+    SRWLOCK g_stateLock = SRWLOCK_INIT;
     PackageState g_state;
+
+    struct PackageStateLockGuard
+    {
+        PackageStateLockGuard()
+        {
+            ::AcquireSRWLockExclusive(&g_stateLock);
+        }
+
+        ~PackageStateLockGuard()
+        {
+            ::ReleaseSRWLockExclusive(&g_stateLock);
+        }
+    };
 
     std::wstring NormalizeRelativePath(std::wstring path)
     {
@@ -460,10 +472,22 @@ namespace
     PasswordCandidateSet BuildPasswordCandidateSet()
     {
         PasswordCandidateSet result;
+        WriteLog("[InitStage] enter BuildPasswordCandidateSet");
 
+        if (SafeIsBadReadPtr((void*)ADDR_4D6A13, 8))
+        {
+            WriteLogFmt("[InitStage] BuildPasswordCandidateSet invalid recv root=0x%08X", ADDR_4D6A13);
+            result.signature = L"recv-root-invalid";
+            WriteLog("[InitStage] leave BuildPasswordCandidateSet invalid-recv-root");
+            return result;
+        }
+
+        WriteLogFmt("[InitStage] BuildPasswordCandidateSet before FollowJmpChain recvRoot=0x%08X", ADDR_4D6A13);
         const BYTE* recvEntry = FollowJmpChain((void*)ADDR_4D6A13);
+        WriteLogFmt("[InitStage] BuildPasswordCandidateSet after FollowJmpChain recvEntry=0x%08X",
+            (unsigned int)(uintptr_t)recvEntry);
         BYTE* recvStubTarget = nullptr;
-        if (recvEntry)
+        if (recvEntry && !SafeIsBadReadPtr(recvEntry, 8))
         {
             const BYTE movOpcode = recvEntry[0];
             if (movOpcode >= 0xB8 && movOpcode <= 0xBF)
@@ -473,13 +497,28 @@ namespace
                 {
                     const DWORD target = *(DWORD*)(recvEntry + 1);
                     if (target != 0 && target != (DWORD)(uintptr_t)recvEntry)
+                    {
+                        if (SafeIsBadReadPtr((void*)(uintptr_t)target, 8))
+                        {
+                            WriteLogFmt("[InitStage] BuildPasswordCandidateSet invalid recv target=0x%08X", target);
+                        }
                         recvStubTarget = FollowJmpChain((void*)(uintptr_t)target);
+                    }
                 }
             }
         }
-
-        if (recvStubTarget)
+        else if (recvEntry)
         {
+            WriteLogFmt("[InitStage] BuildPasswordCandidateSet unreadable recvEntry=0x%08X",
+                (unsigned int)(uintptr_t)recvEntry);
+        }
+
+        WriteLogFmt("[InitStage] BuildPasswordCandidateSet recvStubTarget=0x%08X",
+            (unsigned int)(uintptr_t)recvStubTarget);
+
+        if (recvStubTarget && !SafeIsBadReadPtr(recvStubTarget, 0x200))
+        {
+            WriteLog("[InitStage] BuildPasswordCandidateSet scanning recv stub");
             for (size_t i = 0; i + 13 < 0x200; ++i)
             {
                 BYTE* p = recvStubTarget + i;
@@ -498,10 +537,17 @@ namespace
                 }
             }
         }
+        else if (recvStubTarget)
+        {
+            WriteLogFmt("[InitStage] BuildPasswordCandidateSet unreadable recvStubTarget=0x%08X",
+                (unsigned int)(uintptr_t)recvStubTarget);
+        }
 
         if (result.runtimePasswordAddress != 0)
         {
             SkillOverlayBridgeSetRuntimePasswordAddress(result.runtimePasswordAddress);
+            WriteLogFmt("[InitStage] BuildPasswordCandidateSet found runtimePasswordAddress=0x%08X",
+                (unsigned int)result.runtimePasswordAddress);
         }
         else
         {
@@ -526,6 +572,12 @@ namespace
 
         if (result.runtimePasswordAddress != 0 && result.runtimePasswordRaw == 0)
             result.runtimePasswordPending = true;
+
+        WriteLogFmt(
+            "[InitStage] BuildPasswordCandidateSet addr=0x%08X raw=0x%08X pending=%d",
+            (unsigned int)result.runtimePasswordAddress,
+            result.runtimePasswordRaw,
+            result.runtimePasswordPending ? 1 : 0);
 
         if (result.runtimePasswordAddress != 0 && result.runtimePasswordRaw != 0)
         {
@@ -565,6 +617,8 @@ namespace
             third.c_str(),
             fourth.c_str());
         result.signature = signatureBuffer;
+        WriteLogFmt("[InitStage] leave BuildPasswordCandidateSet signature=%s",
+            WideToUtf8String(result.signature).c_str());
 
         return result;
     }
@@ -920,16 +974,48 @@ namespace
         if (HasPlainSkillConfigMarker(skillConfigDir))
             return false;
 
-        PasswordCandidateSet passwordCandidates = BuildPasswordCandidateSet();
         const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
         const std::wstring packagePath = ssw::path::Combine(directory, kPackageFileName);
+        WIN32_FILE_ATTRIBUTE_DATA packageProbeData = {};
+        if (packagePath.empty() ||
+            !::GetFileAttributesExW(packagePath.c_str(), GetFileExInfoStandard, &packageProbeData))
+        {
+            WriteLogFmt("[InitStage] LoadPackageForDirectory skip missing package path=%s",
+                WideToUtf8String(packagePath).c_str());
+            return false;
+        }
+
+        PasswordCandidateSet passwordCandidates = BuildPasswordCandidateSet();
+        if (passwordCandidates.runtimePasswordAddress != 0 &&
+            passwordCandidates.runtimePasswordRaw == 0)
+        {
+            {
+                PackageStateLockGuard guard;
+                g_state.initialized = true;
+                g_state.skillConfigDir = directory;
+                g_state.packagePath = packagePath;
+                g_state.passwordSignature = passwordCandidates.signature;
+                g_state.runtimePasswordPending = true;
+                g_state.stamp = PackageStamp{};
+                g_state.packageLoaded = false;
+                g_state.packageAttempted = false;
+                g_state.entries.clear();
+                g_state.entryIndexByPath.clear();
+            }
+
+            WriteLogFmt("[SkillPack] defer package load until runtime password becomes non-zero path=%s signature=%s",
+                WideToUtf8String(packagePath).c_str(),
+                WideToUtf8String(passwordCandidates.signature).c_str());
+            return false;
+        }
+
         WIN32_FILE_ATTRIBUTE_DATA pendingFileData = {};
         if (passwordCandidates.runtimePasswordPending &&
             !packagePath.empty() &&
             ::GetFileAttributesExW(packagePath.c_str(), GetFileExInfoStandard, &pendingFileData))
         {
             {
-                std::lock_guard<std::mutex> guard(g_stateMutex);
+                PackageStateLockGuard guard;
                 g_state.initialized = true;
                 g_state.skillConfigDir = directory;
                 g_state.packagePath = packagePath;
@@ -959,7 +1045,7 @@ namespace
         PackageStamp currentStamp = {};
         auto storeFailedState = [&]()
         {
-            std::lock_guard<std::mutex> guard(g_stateMutex);
+            PackageStateLockGuard guard;
             g_state.initialized = true;
             g_state.skillConfigDir = newState.skillConfigDir;
             g_state.packagePath = newState.packagePath;
@@ -974,7 +1060,7 @@ namespace
 
         if (newState.packagePath.empty() || !::GetFileAttributesExW(newState.packagePath.c_str(), GetFileExInfoStandard, &fileData))
         {
-            std::lock_guard<std::mutex> guard(g_stateMutex);
+            PackageStateLockGuard guard;
             if (!g_state.initialized ||
                 g_state.skillConfigDir != newState.skillConfigDir ||
                 g_state.packagePath != newState.packagePath ||
@@ -1002,7 +1088,7 @@ namespace
         currentStamp.lastWriteTime = fileData.ftLastWriteTime;
 
         {
-            std::lock_guard<std::mutex> guard(g_stateMutex);
+            PackageStateLockGuard guard;
             if (g_state.initialized &&
                 g_state.skillConfigDir == newState.skillConfigDir &&
                 g_state.packagePath == newState.packagePath &&
@@ -1068,7 +1154,7 @@ namespace
 
         const int loadedEntryCount = static_cast<int>(entries.size());
         {
-            std::lock_guard<std::mutex> guard(g_stateMutex);
+            PackageStateLockGuard guard;
             g_state.initialized = true;
             g_state.skillConfigDir = newState.skillConfigDir;
             g_state.packagePath = newState.packagePath;
@@ -1106,7 +1192,7 @@ namespace
         if (!LoadPackageForDirectory(directory))
             return false;
 
-        std::lock_guard<std::mutex> guard(g_stateMutex);
+        PackageStateLockGuard guard;
         if (!g_state.packageLoaded)
             return false;
 
@@ -1139,7 +1225,7 @@ namespace
         if (!LoadPackageForDirectory(directory))
             return;
 
-        std::lock_guard<std::mutex> guard(g_stateMutex);
+        PackageStateLockGuard guard;
         if (!g_state.packageLoaded)
             return;
 
@@ -1158,7 +1244,7 @@ namespace
     bool IsRuntimePasswordPendingForDirectory(const std::wstring& skillConfigDir)
     {
         const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
-        std::lock_guard<std::mutex> guard(g_stateMutex);
+        PackageStateLockGuard guard;
         return g_state.initialized &&
             g_state.skillConfigDir == directory &&
             g_state.runtimePasswordPending &&
@@ -1168,8 +1254,36 @@ namespace
 
 void InvalidateSkillConfigPackage()
 {
-    std::lock_guard<std::mutex> guard(g_stateMutex);
-    g_state = PackageState();
+    const bool pristineState =
+        !g_state.initialized &&
+        g_state.skillConfigDir.empty() &&
+        g_state.packagePath.empty() &&
+        g_state.passwordSignature.empty() &&
+        !g_state.runtimePasswordPending &&
+        !g_state.stamp.exists &&
+        !g_state.packageLoaded &&
+        !g_state.packageAttempted &&
+        g_state.entries.empty() &&
+        g_state.entryIndexByPath.empty();
+
+    if (pristineState)
+    {
+        WriteLog("[InitStage] InvalidateSkillConfigPackage pristine-skip");
+        return;
+    }
+
+    PackageStateLockGuard guard;
+    g_state.initialized = false;
+    g_state.skillConfigDir.clear();
+    g_state.packagePath.clear();
+    g_state.passwordSignature.clear();
+    g_state.runtimePasswordPending = false;
+    g_state.stamp = PackageStamp{};
+    g_state.packageLoaded = false;
+    g_state.packageAttempted = false;
+    g_state.entries.clear();
+    g_state.entryIndexByPath.clear();
+    WriteLog("[InitStage] InvalidateSkillConfigPackage cleared");
 }
 
 bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<unsigned char>& outBytes)

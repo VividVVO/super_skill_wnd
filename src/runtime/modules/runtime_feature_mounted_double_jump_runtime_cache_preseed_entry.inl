@@ -5,6 +5,9 @@
     int lookupSkillId,
     void *cachePtr)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+        return false;
+
     if (!cachePtr ||
         SafeIsBadWritePtr(cachePtr, sizeof(uintptr_t)))
     {

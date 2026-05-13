@@ -21,6 +21,7 @@
 #include "d3d8/d3d8_renderer.h"
 #include "runtime/init_pipeline.h"
 #include "runtime/cleanup_pipeline.h"
+#include "runtime/crash_capture.h"
 #include "runtime/feature_switches.h"
 #include <algorithm>
 #include <cwchar>
@@ -173,6 +174,20 @@ static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin"
 #else
 static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin";
 #endif
+
+static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
+{
+    UNREFERENCED_PARAMETER(isD3D8Mode);
+    // 注意：当前工程里“非 ImGui”分支仍然会落到原生 second-child / surface draw 废案。
+    // 在真正把 DX8 自绘面板链独立出来之前，不能把 DX8 直接切到这个分支。
+    return ENABLE_IMGUI_OVERLAY_PANEL;
+}
+
+static bool UseImguiOverlayPanelRuntime()
+{
+    return UseImguiOverlayPanelForMode(g_IsD3D8Mode);
+}
+
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
 static const wchar_t* SUPER_BTN_RES_PATH_ALT = L"/UIWindow2.img/Skill/main/BtMacro";
 static int g_PanelDrawX = -9999;
@@ -268,6 +283,7 @@ static void ReleaseSecondChildCarrierProbeHotkey();
 // ============================================================================
 static DWORD WINAPI InitThread(LPVOID)
 {
+    WriteLog("[InitStage] enter InitThread");
     WriteLog("=== SuperSkillWnd Init v14.9 (ImGui Overlay Panel) ===");
     WriteLogFmt("[Build] marker=%s", BUILD_MARKER);
     WriteLogFmt("[Build] panel_gap=%d btn_off=(%d,%d) vt_delta=%d gone_debounce=%u present_click_poll=%d present_panel_draw=%d routeb_alloc=0x%X focusSync(toggle=%d,move=%d) presentNativeChildUpdate=%d refreshNativeChildUpdate=%d",
@@ -284,16 +300,25 @@ static DWORD WINAPI InitThread(LPVOID)
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
     WriteLog("[CarrierProbe] runtime enabled hotkeys: F10=run once, F11=poll, F12=release");
 #endif
+    WriteLog("[InitStage] before InitializeCrashCaptureRuntime");
+    ssw::runtime::InitializeCrashCaptureRuntime();
+    WriteLog("[InitStage] after InitializeCrashCaptureRuntime");
+    WriteLog("[InitStage] before InitThread Sleep(2000)");
     Sleep(2000);
+    WriteLog("[InitStage] after InitThread Sleep(2000)");
 
+    WriteLog("[InitStage] before SkillManager.Initialize");
     g_SkillMgr.Initialize();
+    WriteLog("[InitStage] after SkillManager.Initialize");
+    WriteLog("[InitStage] before SkillOverlayBridgeInitialize");
     SkillOverlayBridgeInitialize(&g_SkillMgr);
+    WriteLog("[InitStage] after SkillOverlayBridgeInitialize");
 
     g_IsD3D8Mode = (::GetModuleHandleA("d3d8.dll") != nullptr);
 
     SuperRuntimeInstallOptions installOptions = {};
     installOptions.isD3D8Mode = g_IsD3D8Mode;
-    installOptions.enableImguiOverlayPanel = ENABLE_IMGUI_OVERLAY_PANEL;
+    installOptions.enableImguiOverlayPanel = UseImguiOverlayPanelForMode(g_IsD3D8Mode);
 
     SuperRuntimeInstallCallbacks installCallbacks = {};
     installCallbacks.setupD3D8Hook = &SetupD3D8Hook;
@@ -326,7 +351,10 @@ static DWORD WINAPI InitThread(LPVOID)
     g_IsD3D8Mode = installResult.isD3D8Mode;
     g_SuperChildHooksReady = installResult.superChildHooksReady;
 
-    WriteLogFmt("[Build] routeB_hooks_ready=%d imgui_overlay=%d", g_SuperChildHooksReady ? 1 : 0, ENABLE_IMGUI_OVERLAY_PANEL ? 1 : 0);
+    WriteLogFmt("[Build] routeB_hooks_ready=%d imgui_overlay=%d d3d8=%d",
+                g_SuperChildHooksReady ? 1 : 0,
+                UseImguiOverlayPanelForMode(g_IsD3D8Mode) ? 1 : 0,
+                g_IsD3D8Mode ? 1 : 0);
     WriteLog("=== SuperSkillWnd Ready v15.0 ===");
     return 0;
 }
@@ -337,7 +365,7 @@ static DWORD WINAPI InitThread(LPVOID)
 static void CleanupSuperCWnd()
 {
     SuperRuntimeCleanupOptions options = {};
-    options.enableImguiOverlayPanel = ENABLE_IMGUI_OVERLAY_PANEL;
+    options.enableImguiOverlayPanel = UseImguiOverlayPanelRuntime();
     options.isD3D8Mode = g_IsD3D8Mode;
     options.reason = "dll_detach";
 
@@ -353,6 +381,7 @@ static void CleanupSuperCWnd()
     callbacks.uninstallInputSpoof = &Win32InputSpoofUninstall;
 
     SuperRuntimeRunCleanupPipeline(options, callbacks);
+    ssw::runtime::ShutdownCrashCaptureRuntime();
 }
 
 // ============================================================================
@@ -364,13 +393,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID)
         DisableThreadLibraryCalls(hModule);
         g_hModule = hModule;
 #if SSW_ENABLE_RUNTIME_LOGS
-        FILE* f = fopen(LOG_FILE, "w");
+        FILE* f = OpenRuntimeLogFile("w");
         if (f) { fprintf(f, "=== SuperSkillWnd v14.9 (ImGui Overlay Panel) ===\n"); fclose(f); }
 #endif
         char dllPath[MAX_PATH] = {};
         if (GetModuleFileNameA(hModule, dllPath, MAX_PATH) > 0) {
             WriteLogFmt("[Build] module=%s", dllPath);
         }
+        WriteLogFmt("[Build] log_path=%s", GetRuntimeLogPathA());
         CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
     }
     else if (dwReason == DLL_PROCESS_DETACH) {

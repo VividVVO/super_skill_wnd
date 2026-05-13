@@ -451,6 +451,7 @@ namespace
     std::map<int, CustomSkillUseRoute> g_customRoutesBySkillId;
     std::map<unsigned long long, CustomSkillUseRoute> g_customRoutesByProxyAndRoute;
     std::map<int, SuperSkillDefinition> g_superSkillsBySkillId;
+    std::map<int, std::vector<int> > g_independentBuffCandidateSkillIdsByObservedSkillId;
     std::map<int, HiddenSkillDefinition> g_hiddenSkillsBySkillId;
     std::map<int, NativeSkillInjectionDefinition> g_nativeSkillInjectionsBySkillId;
     std::vector<int> g_superSkillIdsByTab[2];
@@ -851,8 +852,10 @@ namespace
     DWORD g_independentBuffOwnerNetClient = 0;
     DWORD g_independentBuffSceneDetachSinceTick = 0;
     DWORD g_independentBuffOwnerMissingSinceTick = 0;
+    DWORD g_lastIndependentBuffOwnerQueryRefreshTick = 0;
     const DWORD kIndependentBuffSceneDetachClearDelayMs = 3000;
     const DWORD kIndependentBuffOwnerMissingClearDelayMs = 300;
+    const DWORD kIndependentBuffOwnerQueryRefreshIntervalMs = 50;
     const int kIndependentBuffMaxReasonableSkillId = 100000000;
     int g_observedNativeCursorState = -1;
     int g_observedSceneFadeAlpha = 0;
@@ -965,6 +968,7 @@ namespace
     bool IsPendingSuperSkillUpgradePacketRewriteFresh();
     void LoadSuperSkillRegistry();
     void ClearSuperSkillRegistry();
+    void RebuildIndependentBuffObservedSkillCandidateMap();
     void LoadNativeSkillInjectionRegistry();
     void ClearNativeSkillInjectionRegistry();
     uintptr_t GameLookupSkillEntryPointer(int skillId);
@@ -3857,6 +3861,7 @@ namespace
     void ClearSuperSkillRegistry()
     {
         g_superSkillsBySkillId.clear();
+        g_independentBuffCandidateSkillIdsByObservedSkillId.clear();
         g_hiddenSkillsBySkillId.clear();
         g_superSkillIdsByTab[0].clear();
         g_superSkillIdsByTab[1].clear();
@@ -3878,6 +3883,7 @@ namespace
         g_independentBuffOwnerNetClient = 0;
         g_independentBuffSceneDetachSinceTick = 0;
         g_independentBuffOwnerMissingSinceTick = 0;
+        g_lastIndependentBuffOwnerQueryRefreshTick = 0;
         g_defaultSuperSpCarrierSkillId = 0;
         g_lastOverlayConfiguredJobId = -1;
     }
@@ -3922,10 +3928,12 @@ namespace
 
     void LoadSuperSkillRegistry()
     {
+        WriteLog("[InitStage] enter LoadSuperSkillRegistry");
         EnsureSkillConfigPathsInitialized();
         ClearSuperSkillRegistry();
         SkillLocalDataInvalidate();
         SkillLocalDataInitialize();
+        WriteLog("[InitStage] after SkillLocalDataInitialize");
 
         std::string json;
         if (!ReadTextFile(kSuperSkillConfigPath, json))
@@ -3935,9 +3943,13 @@ namespace
                 g_loggedMissingSuperSkillConfig = true;
                 WriteLogFmt("[SuperSkill] WARN: missing super skill config: %s", kSuperSkillConfigPath);
             }
+            WriteLog("[InitStage] leave LoadSuperSkillRegistry missing-config");
             return;
         }
         g_loggedMissingSuperSkillConfig = false;
+        WriteLogFmt("[InitStage] LoadSuperSkillRegistry read bytes=%u path=%s",
+            (unsigned int)json.size(),
+            kSuperSkillConfigPath);
 
         ParseJsonInt(json, "defaultSuperSpCarrierSkillId", g_defaultSuperSpCarrierSkillId);
 
@@ -4219,12 +4231,17 @@ namespace
             g_defaultSuperSpCarrierSkillId,
             kSuperSkillConfigPath);
 
+        RebuildIndependentBuffObservedSkillCandidateMap();
         RebuildOverlayLearnedVisibilitySnapshot();
         RefreshConfiguredIndependentPassiveLocalStates("registry-load");
+        WriteLogFmt("[InitStage] leave LoadSuperSkillRegistry loaded=%d hidden=%d",
+            loadedCount,
+            hiddenLoadedCount);
     }
 
     void LoadNativeSkillInjectionRegistry()
     {
+        WriteLog("[InitStage] enter LoadNativeSkillInjectionRegistry");
         EnsureSkillConfigPathsInitialized();
         g_nativeSkillInjectionsBySkillId.clear();
 
@@ -4236,9 +4253,13 @@ namespace
                 g_loggedMissingNativeInjectionConfig = true;
                 WriteLogFmt("[NativeSkill] WARN: missing native injection config: %s", kNativeSkillInjectPath);
             }
+            WriteLog("[InitStage] leave LoadNativeSkillInjectionRegistry missing-config");
             return;
         }
         g_loggedMissingNativeInjectionConfig = false;
+        WriteLogFmt("[InitStage] LoadNativeSkillInjectionRegistry read bytes=%u path=%s",
+            (unsigned int)json.size(),
+            kNativeSkillInjectPath);
 
         int loadedCount = 0;
         for (int index = 0;; ++index)
@@ -4274,6 +4295,7 @@ namespace
         }
 
         WriteLogFmt("[NativeSkill] loaded injection rules=%d path=%s", loadedCount, kNativeSkillInjectPath);
+        WriteLogFmt("[InitStage] leave LoadNativeSkillInjectionRegistry loaded=%d", loadedCount);
     }
 
     bool RouteUsesProxySkill(const CustomSkillUseRoute& route)
@@ -4499,6 +4521,7 @@ namespace
     {
         g_customRoutesBySkillId.clear();
         g_customRoutesByProxyAndRoute.clear();
+        g_independentBuffCandidateSkillIdsByObservedSkillId.clear();
         ClearActiveNativeReleaseContext();
         ClearRecentNativePresentationContext();
         g_loggedMissingRouteConfig = false;
@@ -4507,6 +4530,7 @@ namespace
 
     void LoadCustomSkillRoutes()
     {
+        WriteLog("[InitStage] enter LoadCustomSkillRoutes");
         EnsureSkillConfigPathsInitialized();
         ClearCustomSkillRoutes();
 
@@ -4518,9 +4542,13 @@ namespace
                 WriteLogFmt("[SkillRoute] no config at %s", kCustomSkillRoutePath);
                 g_loggedMissingRouteConfig = true;
             }
+            WriteLog("[InitStage] leave LoadCustomSkillRoutes missing-config");
             return;
         }
         g_loggedMissingRouteConfig = false;
+        WriteLogFmt("[InitStage] LoadCustomSkillRoutes read bytes=%u path=%s",
+            (unsigned int)json.size(),
+            kCustomSkillRoutePath);
 
         for (int i = 0;; ++i)
         {
@@ -4758,9 +4786,12 @@ namespace
         }
 
         EnsureMountedDemonJumpSyntheticRoutes();
+        RebuildIndependentBuffObservedSkillCandidateMap();
 
         WriteLogFmt("[SkillRoute] ready count=%d path=%s",
             (int)g_customRoutesBySkillId.size(), kCustomSkillRoutePath);
+        WriteLogFmt("[InitStage] leave LoadCustomSkillRoutes count=%d",
+            (int)g_customRoutesBySkillId.size());
     }
 
     bool FindRouteByCustomSkillId(int skillId, CustomSkillUseRoute& outRoute)
@@ -4796,6 +4827,49 @@ namespace
         }
         outRoute = mappedRoute;
         return true;
+    }
+
+    void AppendIndependentBuffObservedSkillCandidate(int observedSkillId, int skillId)
+    {
+        if (observedSkillId <= 0 || skillId <= 0)
+            return;
+
+        std::vector<int>& candidates =
+            g_independentBuffCandidateSkillIdsByObservedSkillId[observedSkillId];
+        if (std::find(candidates.begin(), candidates.end(), skillId) == candidates.end())
+            candidates.push_back(skillId);
+    }
+
+    void RebuildIndependentBuffObservedSkillCandidateMap()
+    {
+        g_independentBuffCandidateSkillIdsByObservedSkillId.clear();
+
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (!definition.independentBuffEnabled)
+                continue;
+
+            AppendIndependentBuffObservedSkillCandidate(definition.skillId, definition.skillId);
+
+            if (definition.independentNativeDisplaySkillId > 0)
+            {
+                AppendIndependentBuffObservedSkillCandidate(
+                    definition.independentNativeDisplaySkillId,
+                    definition.skillId);
+            }
+
+            std::map<int, CustomSkillUseRoute>::const_iterator routeIt =
+                g_customRoutesBySkillId.find(definition.skillId);
+            if (routeIt == g_customRoutesBySkillId.end())
+                continue;
+
+            const CustomSkillUseRoute& route = routeIt->second;
+            if (route.proxySkillId > 0)
+                AppendIndependentBuffObservedSkillCandidate(route.proxySkillId, definition.skillId);
+        }
     }
 
     bool IsNativeFlyingMountSkillGateFamily(int skillId)
@@ -5408,6 +5482,7 @@ namespace
     }
 
     void RefreshIndependentBuffRuntimeOwnerBinding();
+    void RefreshIndependentBuffRuntimeOwnerBindingForQuery();
 
     int FindNextAvailableIndependentBuffOverlaySlot(int skillIdToIgnore)
     {
@@ -5619,10 +5694,12 @@ namespace
             const DWORD liveStatusBar = TryGetLiveStatusBar();
             if (liveStatusBar)
                 SkillOverlayBridgeSetObservedStatusBarPtr(liveStatusBar);
+            // Recv inspect runs before the game's own buff handler. Avoid forcing
+            // an eager status-bar/skill-window refresh here and let the native
+            // receive path complete the UI update once.
             WriteLogFmt("[IndependentBuffNativeVisible] liveStatusBar=0x%08X after give/refresh skillId=%d",
                 liveStatusBar,
                 packetSkillId);
-            ForceRefreshIndependentBuffUi("native_visible_give");
         }
     }
 
@@ -5656,7 +5733,6 @@ namespace
                 SkillOverlayBridgeSetObservedStatusBarPtr(liveStatusBar);
             WriteLogFmt("[IndependentBuffNativeVisible] liveStatusBar=0x%08X after cancel",
                 liveStatusBar);
-            ForceRefreshIndependentBuffUi("native_visible_cancel");
         }
     }
 
@@ -5783,6 +5859,7 @@ namespace
         g_independentBuffOwnerNetClient = 0;
         g_independentBuffSceneDetachSinceTick = 0;
         g_independentBuffOwnerMissingSinceTick = 0;
+        g_lastIndependentBuffOwnerQueryRefreshTick = 0;
         SyncMergedLocalPotentialBufferToExternalAddress();
 
         if (hadRewriteStates || hadLocalStates || hadPassiveLocalStates || hadOverlayStates || hadNativeVisibleStates)
@@ -5798,13 +5875,21 @@ namespace
 
     void RefreshIndependentBuffRuntimeOwnerBinding()
     {
+        const bool hasRuntimeState = HasAnyIndependentBuffRuntimeState();
+        if (!hasRuntimeState)
+        {
+            g_independentBuffSceneDetachSinceTick = 0;
+            g_independentBuffOwnerMissingSinceTick = 0;
+            g_lastIndependentBuffOwnerQueryRefreshTick = 0;
+            return;
+        }
+
         const DWORD nowTick = GetTickCount();
         const DWORD currentNetClient = TryGetCurrentIndependentBuffOwnerNetClient();
         const DWORD currentUserLocal = TryGetCurrentIndependentBuffOwnerUserLocal();
         const DWORD liveSkillContext = TryGetLiveSkillContext();
         const DWORD liveSkillDataMgr = TryGetLiveSkillDataMgr();
         const DWORD liveStatusBar = TryGetLiveStatusBar();
-        const bool hasRuntimeState = HasAnyIndependentBuffRuntimeState();
         const bool sceneLikelyDetached =
             currentUserLocal == 0 &&
             liveSkillContext == 0;
@@ -5919,6 +6004,29 @@ namespace
         }
 
         g_independentBuffOwnerUserLocal = currentUserLocal;
+    }
+
+    void RefreshIndependentBuffRuntimeOwnerBindingForQuery()
+    {
+        if (!HasAnyIndependentBuffRuntimeState())
+        {
+            g_lastIndependentBuffOwnerQueryRefreshTick = 0;
+            RefreshIndependentBuffRuntimeOwnerBinding();
+            return;
+        }
+
+        const DWORD nowTick = GetTickCount();
+        if (g_lastIndependentBuffOwnerQueryRefreshTick != 0 &&
+            nowTick - g_lastIndependentBuffOwnerQueryRefreshTick < kIndependentBuffOwnerQueryRefreshIntervalMs)
+        {
+            return;
+        }
+
+        RefreshIndependentBuffRuntimeOwnerBinding();
+        if (HasAnyIndependentBuffRuntimeState())
+            g_lastIndependentBuffOwnerQueryRefreshTick = nowTick;
+        else
+            g_lastIndependentBuffOwnerQueryRefreshTick = 0;
     }
 
     void ClearLocalPotentialDeltaBuffer(LocalPotentialDeltaBuffer& buffer)
@@ -6416,47 +6524,29 @@ namespace
         if (observedSkillId <= 0)
             return false;
 
+        const std::map<int, std::vector<int> >::const_iterator candidateIt =
+            g_independentBuffCandidateSkillIdsByObservedSkillId.find(observedSkillId);
+        if (candidateIt == g_independentBuffCandidateSkillIdsByObservedSkillId.end() ||
+            candidateIt->second.empty())
+        {
+            return false;
+        }
+
         const DWORD now = GetTickCount();
         int bestSkillId = 0;
         DWORD bestUseTick = 0;
 
-        SuperSkillDefinition directDefinition = {};
-        if (FindSuperSkillDefinition(observedSkillId, directDefinition) &&
-            directDefinition.independentBuffEnabled)
+        for (size_t index = 0; index < candidateIt->second.size(); ++index)
         {
-            const std::map<int, DWORD>::const_iterator directUseIt =
-                g_recentIndependentBuffClientUseTickBySkillId.find(directDefinition.skillId);
-            if (directUseIt != g_recentIndependentBuffClientUseTickBySkillId.end() &&
-                now - directUseIt->second <= kIndependentBuffRefreshCancelIgnoreMs)
-            {
-                bestSkillId = directDefinition.skillId;
-                bestUseTick = directUseIt->second;
-            }
-            else
-            {
-                bestSkillId = directDefinition.skillId;
-            }
-        }
-
-        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
-             it != g_superSkillsBySkillId.end();
-             ++it)
-        {
-            const SuperSkillDefinition& definition = it->second;
-            if (!definition.independentBuffEnabled ||
-                definition.skillId == observedSkillId)
+            const int candidateSkillId = candidateIt->second[index];
+            SuperSkillDefinition definition = {};
+            if (!FindSuperSkillDefinition(candidateSkillId, definition) ||
+                !definition.independentBuffEnabled)
             {
                 continue;
             }
 
-            CustomSkillUseRoute route = {};
-            if (!FindRouteByCustomSkillId(definition.skillId, route) ||
-                route.proxySkillId != observedSkillId)
-            {
-                continue;
-            }
-
-            std::map<int, DWORD>::const_iterator useIt =
+            const std::map<int, DWORD>::const_iterator useIt =
                 g_recentIndependentBuffClientUseTickBySkillId.find(definition.skillId);
             if (useIt == g_recentIndependentBuffClientUseTickBySkillId.end())
                 continue;
@@ -6466,7 +6556,7 @@ namespace
 
             if (bestSkillId == 0 ||
                 useIt->second > bestUseTick ||
-                (useIt->second == bestUseTick && definition.skillId != observedSkillId))
+                (useIt->second == bestUseTick && definition.skillId == observedSkillId))
             {
                 bestSkillId = definition.skillId;
                 bestUseTick = useIt->second;
@@ -6479,23 +6569,13 @@ namespace
             return true;
         }
 
-        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
-             it != g_superSkillsBySkillId.end();
-             ++it)
+        for (size_t index = 0; index < candidateIt->second.size(); ++index)
         {
-            const SuperSkillDefinition& definition = it->second;
-            if (!definition.independentBuffEnabled ||
-                definition.skillId == observedSkillId)
-            {
+            const int candidateSkillId = candidateIt->second[index];
+            SuperSkillDefinition definition = {};
+            if (!FindSuperSkillDefinition(candidateSkillId, definition) ||
+                !definition.independentBuffEnabled)
                 continue;
-            }
-
-            CustomSkillUseRoute route = {};
-            if (!FindRouteByCustomSkillId(definition.skillId, route) ||
-                route.proxySkillId != observedSkillId)
-            {
-                continue;
-            }
 
             outSkillId = definition.skillId;
             return true;
@@ -7370,7 +7450,7 @@ namespace
 
     int ResolveActiveIndependentBuffBonusTotal(const char* bonusKey)
     {
-        RefreshIndependentBuffRuntimeOwnerBinding();
+        RefreshIndependentBuffRuntimeOwnerBindingForQuery();
 
         if (!bonusKey || !*bonusKey || g_activeIndependentBuffRewriteStates.empty())
             return 0;
@@ -7413,17 +7493,20 @@ namespace
 
     int ResolveActiveIndependentPassiveBonusTotal(const char* bonusKey)
     {
-        RefreshIndependentBuffRuntimeOwnerBinding();
+        RefreshIndependentBuffRuntimeOwnerBindingForQuery();
 
         if (!bonusKey || !*bonusKey || g_activeLocalIndependentPassivePotentialBySkillId.empty())
             return 0;
 
         int total = 0;
-        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
-             it != g_superSkillsBySkillId.end();
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator it = g_activeLocalIndependentPassivePotentialBySkillId.begin();
+             it != g_activeLocalIndependentPassivePotentialBySkillId.end();
              ++it)
         {
-            const SuperSkillDefinition& definition = it->second;
+            SuperSkillDefinition definition = {};
+            if (!FindSuperSkillDefinition(it->first, definition))
+                continue;
+
             if (!definition.passive ||
                 definition.independentBuffEnabled ||
                 !definition.independentPassiveEnabled)
@@ -9622,6 +9705,7 @@ static bool TryReloadSkillConfigPackageAfterRuntimePasswordReady(SkillManager* m
 
 void SkillOverlayBridgeInitialize(SkillManager* manager)
 {
+    WriteLogFmt("[InitStage] enter SkillOverlayBridgeInitialize manager=0x%08X", (DWORD)manager);
     g_bridge = BridgeState{};
     g_lastRefreshTick = 0;
     g_fastRefreshUntilTick = 0;
@@ -9640,22 +9724,32 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
     g_loggedMissingSuperSkillConfig = false;
     g_loggedDuplicateSuperSkills = false;
     ssw::runtime::ReloadFeatureSwitches();
+    WriteLog("[InitStage] after ReloadFeatureSwitches");
     g_outgoingPacketRewriteRouterInitialized = false;
     ClearPendingSuperSkillUpgradePacketRewrite();
+    WriteLog("[InitStage] after ClearPendingSuperSkillUpgradePacketRewrite");
     LoadSuperSkillRegistry();
+    WriteLog("[InitStage] after LoadSuperSkillRegistry");
     LoadCustomSkillRoutes();
+    WriteLog("[InitStage] after LoadCustomSkillRoutes");
     LoadNativeSkillInjectionRegistry();
+    WriteLog("[InitStage] after LoadNativeSkillInjectionRegistry");
 
     for (int i = 0; i < SKILL_BAR_TOTAL_SLOTS; ++i)
     {
         g_quickSlots[i] = QuickSlotBinding{};
         g_pendingQuickSlotRestores[i] = PendingQuickSlotRestore{};
     }
+    WriteLog("[InitStage] after quick slot reset");
 
     ConfigureIndependentOverlayManager(manager);
+    WriteLog("[InitStage] after ConfigureIndependentOverlayManager");
     SkillOverlaySourceManagerInitialize(&g_bridge.managerSource, manager);
+    WriteLog("[InitStage] after SkillOverlaySourceManagerInitialize");
     SkillOverlaySourceGameInitialize(&g_bridge.gameSource);
+    WriteLog("[InitStage] after SkillOverlaySourceGameInitialize");
     g_bridge.activeSource = &g_bridge.managerSource;
+    WriteLog("[InitStage] leave SkillOverlayBridgeInitialize");
 }
 
 void SkillOverlayBridgeShutdown()
@@ -10650,7 +10744,7 @@ uintptr_t SkillOverlayBridgePrepareLocalIndependentPotentialDisplayBuffer(uintpt
 
 int SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(int offset)
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
         return 0;
 
@@ -10663,7 +10757,7 @@ int SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(int offset)
 
 int SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(int offset)
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
         return 0;
 
@@ -10676,19 +10770,38 @@ int SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(int offset)
 
 bool SkillOverlayBridgeHasLocalIndependentPotentialBonuses()
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     return HasAnyLocalIndependentPotentialActualState();
 }
 
 bool SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses()
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     return !g_activeLocalIndependentPotentialDisplayBySkillId.empty();
+}
+
+bool SkillOverlayBridgeNeedsStatusBarBuffSlotHooks()
+{
+    if (g_superSkillsBySkillId.empty())
+        return true;
+
+    for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+         it != g_superSkillsBySkillId.end();
+         ++it)
+    {
+        const SuperSkillDefinition& definition = it->second;
+        if (!definition.independentBuffEnabled)
+            continue;
+        if (definition.independentDisplayMode != SuperSkillDefinition::IndependentDisplayMode_None)
+            return true;
+    }
+
+    return false;
 }
 
 bool SkillOverlayBridgeHasIndependentBuffOverlayEntries()
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     if (!IsIndependentBuffGameplaySceneActive())
         return false;
 
@@ -10793,7 +10906,7 @@ namespace
 
 void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentBuffOverlayEntry>& outEntries)
 {
-    RefreshIndependentBuffRuntimeOwnerBinding();
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     outEntries.clear();
     if (!IsIndependentBuffGameplaySceneActive())
         return;
@@ -13038,120 +13151,118 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
                 (DWORD)(uintptr_t)callerRetAddr);
         }
 
-        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
-             it != g_superSkillsBySkillId.end();
-             ++it)
+        SuperSkillDefinition definition = {};
+        if (!FindSuperSkillDefinition(resolvedPacketSkillId, definition) ||
+            !definition.independentBuffEnabled)
         {
-            const SuperSkillDefinition& definition = it->second;
-            const DWORD now = GetTickCount();
-            std::map<int, DWORD>::const_iterator cancelIt = g_recentIndependentBuffClientCancelTickBySkillId.find(definition.skillId);
-            if (cancelIt != g_recentIndependentBuffClientCancelTickBySkillId.end() &&
-                now - cancelIt->second <= kIndependentBuffRefreshCancelIgnoreMs)
+            return;
+        }
+
+        const DWORD now = GetTickCount();
+        std::map<int, DWORD>::const_iterator cancelIt = g_recentIndependentBuffClientCancelTickBySkillId.find(definition.skillId);
+        if (cancelIt != g_recentIndependentBuffClientCancelTickBySkillId.end() &&
+            now - cancelIt->second <= kIndependentBuffRefreshCancelIgnoreMs)
+        {
+            bool hasNewerManualUse = false;
+            DWORD useDelta = 0;
+            std::map<int, DWORD>::const_iterator useIt = g_recentIndependentBuffClientUseTickBySkillId.find(definition.skillId);
+            if (useIt != g_recentIndependentBuffClientUseTickBySkillId.end() &&
+                useIt->second >= cancelIt->second)
             {
-                bool hasNewerManualUse = false;
-                DWORD useDelta = 0;
-                std::map<int, DWORD>::const_iterator useIt = g_recentIndependentBuffClientUseTickBySkillId.find(definition.skillId);
-                if (useIt != g_recentIndependentBuffClientUseTickBySkillId.end() &&
-                    useIt->second >= cancelIt->second)
-                {
-                    hasNewerManualUse = true;
-                    useDelta = now - useIt->second;
-                }
-
-                if (!hasNewerManualUse)
-                {
-                    WriteLogFmt("[IndependentBuffClient] ignore refresh-give skillId=%d delta=%u caller=0x%08X",
-                        definition.skillId,
-                        (unsigned int)(now - cancelIt->second),
-                        (DWORD)(uintptr_t)callerRetAddr);
-                    continue;
-                }
-
-                WriteLogFmt("[IndependentBuffClient] allow give after manual-use skillId=%d cancelDelta=%u useDelta=%u caller=0x%08X",
-                    definition.skillId,
-                    (unsigned int)(now - cancelIt->second),
-                    (unsigned int)useDelta,
-                    (DWORD)(uintptr_t)callerRetAddr);
+                hasNewerManualUse = true;
+                useDelta = now - useIt->second;
             }
 
-            ActiveIndependentBuffRewriteState state;
-            if (!BuildIndependentBuffRewriteState(definition, state))
-                continue;
-            if (resolvedPacketSkillId != definition.skillId)
-                continue;
-            if (!PacketMaskHasValue(payload, payloadLen, state.carrierMaskPosition, state.carrierMaskValue))
-                continue;
-
-            UpdateLocalIndependentPotentialStateForDefinition(definition, true);
-            UpdateIndependentBuffOverlayStateForDefinition(definition, durationMs);
-            g_activeIndependentBuffRewriteStates[MakeIndependentBuffMaskKey(state.carrierMaskPosition, state.carrierMaskValue)] = state;
-
-            if (!state.rewriteToNative)
+            if (!hasNewerManualUse)
             {
-                WriteLogFmt("[IndependentBuffClient] give keep-carrier skillId=%d carrier=(%d,0x%08X) durationMs=%d caller=0x%08X",
+                WriteLogFmt("[IndependentBuffClient] ignore refresh-give skillId=%d delta=%u caller=0x%08X",
                     definition.skillId,
-                    state.carrierMaskPosition,
-                    state.carrierMaskValue,
-                    durationMs,
+                    (unsigned int)(now - cancelIt->second),
                     (DWORD)(uintptr_t)callerRetAddr);
                 return;
             }
 
-            if (!RewritePacketMaskValue(
-                    payload,
-                    payloadLen,
-                    state.carrierMaskPosition,
-                    state.carrierMaskValue,
-                    state.nativeMaskPosition,
-                    state.nativeMaskValue))
-            {
-                continue;
-            }
+            WriteLogFmt("[IndependentBuffClient] allow give after manual-use skillId=%d cancelDelta=%u useDelta=%u caller=0x%08X",
+                definition.skillId,
+                (unsigned int)(now - cancelIt->second),
+                (unsigned int)useDelta,
+                (DWORD)(uintptr_t)callerRetAddr);
+        }
 
-            if (definition.independentNativeValueSpec.type != PassiveValueSpecType_None)
-            {
-                int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
-                int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
-                if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
-                    sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
-                int nativeValue = 0;
-                if (sourceSkillId > 0 &&
-                    sourceSkillLevel > 0 &&
-                    ResolvePassiveValueForLevel(sourceSkillId, sourceSkillLevel, definition.independentNativeValueSpec, nativeValue) &&
-                    nativeValue >= 0 &&
-                    nativeValue <= 0xFFFF)
-                {
-                    WritePacketShort(payload, kBuffMaskByteCount, static_cast<unsigned short>(nativeValue));
-                }
-                else
-                {
-                    WriteLogFmt("[IndependentBuffClient] give value lookup miss skillId=%d sourceSkillId=%d level=%d field=%s original=%u caller=0x%08X",
-                        definition.skillId,
-                        sourceSkillId,
-                        sourceSkillLevel,
-                        definition.independentNativeValueSpec.skillFieldName.c_str(),
-                        static_cast<unsigned int>(originalDisplayValue),
-                        (DWORD)(uintptr_t)callerRetAddr);
-                }
-            }
+        ActiveIndependentBuffRewriteState state;
+        if (!BuildIndependentBuffRewriteState(definition, state))
+            return;
+        if (!PacketMaskHasValue(payload, payloadLen, state.carrierMaskPosition, state.carrierMaskValue))
+            return;
 
-            const int displaySkillId = definition.independentNativeDisplaySkillId > 0
-                ? definition.independentNativeDisplaySkillId
-                : definition.skillId;
-            WritePacketInt(payload, kBuffMaskByteCount + 2, displaySkillId);
-            WriteLogFmt("[IndependentBuffClient] give rewrite skillId=%d carrier=(%d,0x%08X) native=(%d,0x%08X) packetSkillId=%d displaySkillId=%d value=%u->%u caller=0x%08X",
+        UpdateLocalIndependentPotentialStateForDefinition(definition, true);
+        UpdateIndependentBuffOverlayStateForDefinition(definition, durationMs);
+        g_activeIndependentBuffRewriteStates[MakeIndependentBuffMaskKey(state.carrierMaskPosition, state.carrierMaskValue)] = state;
+
+        if (!state.rewriteToNative)
+        {
+            WriteLogFmt("[IndependentBuffClient] give keep-carrier skillId=%d carrier=(%d,0x%08X) durationMs=%d caller=0x%08X",
                 definition.skillId,
                 state.carrierMaskPosition,
                 state.carrierMaskValue,
-                state.nativeMaskPosition,
-                state.nativeMaskValue,
-                packetSkillId,
-                displaySkillId,
-                static_cast<unsigned int>(originalDisplayValue),
-                static_cast<unsigned int>(ReadPacketShort(payload, kBuffMaskByteCount)),
+                durationMs,
                 (DWORD)(uintptr_t)callerRetAddr);
             return;
         }
+
+        if (!RewritePacketMaskValue(
+                payload,
+                payloadLen,
+                state.carrierMaskPosition,
+                state.carrierMaskValue,
+                state.nativeMaskPosition,
+                state.nativeMaskValue))
+        {
+            return;
+        }
+
+        if (definition.independentNativeValueSpec.type != PassiveValueSpecType_None)
+        {
+            int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
+            int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
+            if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
+                sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
+            int nativeValue = 0;
+            if (sourceSkillId > 0 &&
+                sourceSkillLevel > 0 &&
+                ResolvePassiveValueForLevel(sourceSkillId, sourceSkillLevel, definition.independentNativeValueSpec, nativeValue) &&
+                nativeValue >= 0 &&
+                nativeValue <= 0xFFFF)
+            {
+                WritePacketShort(payload, kBuffMaskByteCount, static_cast<unsigned short>(nativeValue));
+            }
+            else
+            {
+                WriteLogFmt("[IndependentBuffClient] give value lookup miss skillId=%d sourceSkillId=%d level=%d field=%s original=%u caller=0x%08X",
+                    definition.skillId,
+                    sourceSkillId,
+                    sourceSkillLevel,
+                    definition.independentNativeValueSpec.skillFieldName.c_str(),
+                    static_cast<unsigned int>(originalDisplayValue),
+                    (DWORD)(uintptr_t)callerRetAddr);
+            }
+        }
+
+        const int displaySkillId = definition.independentNativeDisplaySkillId > 0
+            ? definition.independentNativeDisplaySkillId
+            : definition.skillId;
+        WritePacketInt(payload, kBuffMaskByteCount + 2, displaySkillId);
+        WriteLogFmt("[IndependentBuffClient] give rewrite skillId=%d carrier=(%d,0x%08X) native=(%d,0x%08X) packetSkillId=%d displaySkillId=%d value=%u->%u caller=0x%08X",
+            definition.skillId,
+            state.carrierMaskPosition,
+            state.carrierMaskValue,
+            state.nativeMaskPosition,
+            state.nativeMaskValue,
+            packetSkillId,
+            displaySkillId,
+            static_cast<unsigned int>(originalDisplayValue),
+            static_cast<unsigned int>(ReadPacketShort(payload, kBuffMaskByteCount)),
+            (DWORD)(uintptr_t)callerRetAddr);
     }
 
     void TryRewriteIndependentBuffCancelPacket(BYTE* payload, int payloadLen, uintptr_t callerRetAddr)

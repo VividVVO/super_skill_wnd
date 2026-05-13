@@ -12,6 +12,8 @@ static bool SetupPacketHook()
 
     bool sendHookOk = false;
     bool recvHookOk = false;
+    const bool enableAbilityRedObservationHooks = EnableAbilityRedObservationHooks();
+    const bool enableSceneFadeObservationHooks = EnableSceneFadeObservationHooks();
     SkillOverlayBridgeSetResetPreviewReceiveHookReady(false);
 
     BYTE *pTarget = FollowJmpChain((void *)ADDR_43D94D);
@@ -157,15 +159,7 @@ static bool SetupPacketHook()
         localHookAnyOk = true;
     if (SetupLocalIndependentPotentialFlatStatHook())
         localHookAnyOk = true;
-    if (SetupLocalIndependentPotentialDisplayFunctionHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedHashContainerHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedExtendedAggregateHook())
-        localHookAnyOk = true;
     if (SetupMountMovementAbilityFeatureHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedSiblingCalcHooks())
         localHookAnyOk = true;
     if (SetupAbilityRedDiff84C470PreSubHook())
         localHookAnyOk = true;
@@ -179,27 +173,56 @@ static bool SetupPacketHook()
         localHookAnyOk = true;
     if (SetupAbilityRedFinalValueHooks())
         localHookAnyOk = true;
-    if (SetupAbilityRedDisplayCandidateHook())
-        localHookAnyOk = true;
-    if (SetupAbilityRedDisplayCallsiteHook())
-        localHookAnyOk = true;
-    if (SetupAbilityRedLevelReadHook())
-        localHookAnyOk = true;
-    if (SetupAbilityRedSkillWriteHooks())
-        localHookAnyOk = true;
+    if (enableAbilityRedObservationHooks)
+    {
+        if (SetupLocalIndependentPotentialDisplayFunctionHooks())
+            localHookAnyOk = true;
+        if (SetupAbilityRedHashContainerHooks())
+            localHookAnyOk = true;
+        if (SetupAbilityRedExtendedAggregateHook())
+            localHookAnyOk = true;
+        if (SetupAbilityRedSiblingCalcHooks())
+            localHookAnyOk = true;
+        if (SetupAbilityRedDisplayCandidateHook())
+            localHookAnyOk = true;
+        if (SetupAbilityRedDisplayCallsiteHook())
+            localHookAnyOk = true;
+        if (SetupAbilityRedLevelReadHook())
+            localHookAnyOk = true;
+        if (SetupAbilityRedSkillWriteHooks())
+            localHookAnyOk = true;
+    }
+    else
+    {
+        WriteLog("[AbilityRedObserve] pure observation hooks disabled");
+    }
 
     WriteLogFmt("[IndependentBuffLocal] local read-point hooks active=%d mode=recv_plus_readpoint",
         localHookAnyOk ? 1 : 0);
     if (!SetupPotentialTextDisplayHook())
         WriteLog("[PotentialTextHook] display text hook install failed");
-    if (!SetupSurfaceDrawImageObservationHook())
-        WriteLog("[ObservedSceneFade] surface draw observation hook install failed");
+    if (enableSceneFadeObservationHooks)
+    {
+        if (!SetupSurfaceDrawImageObservationHook())
+            WriteLog("[ObservedSceneFade] surface draw observation hook install failed");
+    }
+    else
+    {
+        WriteLog("[ObservedSceneFade] hook disabled: fade sync retired");
+    }
     if (!SetupNativeCursorStateHook())
         WriteLog("[ObservedCursorState] 5F3EC0 hook install failed");
 
     SkillOverlayBridgeSetResetPreviewReceiveHookReady(sendHookOk && recvHookOk);
-    if (!SetupStatusBarBuffSlotHooks())
-        WriteLog("[StatusBarBuffSlot] slot refresh hook install failed");
+    if (SkillOverlayBridgeNeedsStatusBarBuffSlotHooks())
+    {
+        if (!SetupStatusBarBuffSlotHooks())
+            WriteLog("[StatusBarBuffSlot] slot refresh hook install failed");
+    }
+    else
+    {
+        WriteLog("[StatusBarBuffSlot] hook install skipped: no configured native/overlay independent buff display");
+    }
     return sendHookOk && recvHookOk;
 }
 
@@ -366,6 +389,9 @@ static bool SetupStatusBarBuffSlotHooks()
 
 static bool SetupSurfaceDrawImageObservationHook()
 {
+    if (!EnableSceneFadeObservationHooks())
+        return true;
+
     if (oSurfaceDrawImageFn)
         return true;
 

@@ -336,7 +336,7 @@ static void PrepareForD3DDeviceReset(const char *reason)
         Win32InputSpoofSetSuppressMouse(false);
     g_LastOverlaySuppressMouse = false;
 
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
         SuperImGuiOverlayOnDeviceLost();
 
     // Keep managed textures alive across Reset. Releasing them inside Reset has
@@ -796,7 +796,7 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
     if (!skillWndThis)
         return false;
 
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         if (!g_GameHwnd || !g_pDevice)
         {
@@ -918,7 +918,7 @@ static bool CreateSuperWnd(uintptr_t skillWndThis)
 
 static void SetSuperWndVisible(uintptr_t wndObj, int showVal)
 {
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         SuperImGuiOverlaySetVisible(showVal != 0);
         return;
@@ -976,7 +976,7 @@ static void SetSuperWndVisible(uintptr_t wndObj, int showVal)
 
 static void SafeCloseSuperWnd(const char *reason)
 {
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         WriteLogFmt("[Lifecycle] hiding imgui overlay (reason=%s)", reason ? reason : "unknown");
         SuperImGuiOverlaySetVisible(false);
@@ -1021,7 +1021,7 @@ static void SafeCloseSuperWnd(const char *reason)
 
 static void DestroySuperWndOnly(const char *reason)
 {
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         SetSuperWndVisible(g_SuperCWnd, 0);
         g_PanelDrawX = -9999;
@@ -1041,7 +1041,7 @@ static void DestroySuperWndOnly(const char *reason)
 
 static void ResetSuperRuntimeState(bool closeWnd, const char *reason)
 {
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         if (g_IsD3D8Mode)
         {
@@ -1134,7 +1134,7 @@ static void OnSkillWndPointerObserved(uintptr_t observed, const char *srcTag)
     g_Ready = true;
     g_LastSkillWndSeenTick = now;
 
-    if (g_IsD3D8Mode && ENABLE_IMGUI_OVERLAY_PANEL)
+    if (g_IsD3D8Mode && UseImguiOverlayPanelRuntime())
         EnsureDeferredInteractionHooks("skillwnd_ready");
 }
 
@@ -1157,7 +1157,7 @@ static void ToggleSuperWnd(const char *srcTag)
     g_SuperExpanded = !g_SuperExpanded;
     WriteLogFmt("[Toggle:%s] expanded=%d", srcTag ? srcTag : "unknown", g_SuperExpanded);
 
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
     {
         if (g_IsD3D8Mode)
             SuperD3D8OverlaySetPanelExpanded(g_SuperExpanded);
@@ -1167,7 +1167,7 @@ static void ToggleSuperWnd(const char *srcTag)
 
     // D3D8 mode owns the shared ImGui panel from hkD3D8Present.
     // It does not need the D3D9 CreateSuperWnd route or a native child window.
-    if (g_IsD3D8Mode && ENABLE_IMGUI_OVERLAY_PANEL)
+    if (g_IsD3D8Mode && UseImguiOverlayPanelRuntime())
     {
         WriteLogFmt("[Toggle] D3D8 mode: panel %s", g_SuperExpanded ? "ON" : "OFF");
         return;
@@ -1175,14 +1175,14 @@ static void ToggleSuperWnd(const char *srcTag)
 
     if (g_SuperExpanded && !g_NativeWndCreated)
     {
-        WriteLog(ENABLE_IMGUI_OVERLAY_PANEL ? "[Toggle] creating imgui overlay panel..." : "[Toggle] creating official second-slot super child...");
+        WriteLog(UseImguiOverlayPanelRuntime() ? "[Toggle] creating imgui overlay panel..." : "[Toggle] creating official second-slot super child...");
         if (CreateSuperWnd(g_SkillWndThis))
         {
-            WriteLog(ENABLE_IMGUI_OVERLAY_PANEL ? "[Toggle] imgui overlay panel ready" : "[Toggle] official second-slot super child created OK");
+            WriteLog(UseImguiOverlayPanelRuntime() ? "[Toggle] imgui overlay panel ready" : "[Toggle] official second-slot super child created OK");
         }
         else
         {
-            WriteLog(ENABLE_IMGUI_OVERLAY_PANEL ? "[Toggle] imgui overlay panel create FAILED" : "[Toggle] official second-slot super child create FAILED");
+            WriteLog(UseImguiOverlayPanelRuntime() ? "[Toggle] imgui overlay panel create FAILED" : "[Toggle] official second-slot super child create FAILED");
             g_SuperExpanded = false;
             g_PanelDrawX = -9999;
             g_PanelDrawY = -9999;
@@ -1618,7 +1618,7 @@ static bool DrawSuperPanelNativeBackgrnd(uintptr_t skillWndThis)
 
 static void DrawSuperPanelInSkillWnd(uintptr_t skillWndThis)
 {
-    if (ENABLE_IMGUI_OVERLAY_PANEL)
+    if (UseImguiOverlayPanelRuntime())
         return;
     if (!skillWndThis || !g_SuperExpanded)
         return;

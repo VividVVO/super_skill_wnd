@@ -5,6 +5,9 @@
     int lookupSkillId,
     void *cachePtr)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+        return;
+
     int mountItemId = 0;
     int childSkillId = 0;
     if (!TryResolveMountedDemonJumpFreshChildLevelLookup(

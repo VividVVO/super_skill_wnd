@@ -9,6 +9,9 @@ static void ObserveMountedDemonJumpGateProbeLevelLookup(
     int rawResult,
     int finalResult)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+        return;
+
     int gateProbeMountItemId = 0;
     if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
             &gateProbeMountItemId,

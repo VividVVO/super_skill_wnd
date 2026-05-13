@@ -2,6 +2,8 @@
 static void ObserveSurfaceDrawImageCall(void *surface, int x, int y, int imageObj, DWORD *variantLikeAlpha)
 {
     UNREFERENCED_PARAMETER(surface);
+    if (!EnableSceneFadeObservationHooks())
+        return;
 
     HWND hwnd = g_GameHwnd ? g_GameHwnd : g_D3D8GameHwnd;
     RECT clientRect = {};
@@ -136,15 +138,11 @@ static char __cdecl hkNativeCursorStateSetHandler(uintptr_t thisPtr, unsigned in
 
     static int s_lastLoggedState = -9999;
     static uintptr_t s_lastLoggedHandle = 0;
-    static DWORD s_lastCursorStateLogTick = 0;
-    const DWORD nowTick = GetTickCount();
     if (currentState != s_lastLoggedState ||
-        currentHandle != s_lastLoggedHandle ||
-        nowTick - s_lastCursorStateLogTick > 1000)
+        currentHandle != s_lastLoggedHandle)
     {
         s_lastLoggedState = currentState;
         s_lastLoggedHandle = currentHandle;
-        s_lastCursorStateLogTick = nowTick;
         WriteLogFmt("[ObservedCursorState] req=%u current=%d manager=0x%08X handle=0x%08X result=%d",
             requestedState,
             currentState,

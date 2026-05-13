@@ -63,10 +63,163 @@ inline bool SafeIsBadWritePtr(void* ptr, size_t size)
 #define SSW_ENABLE_DIAGNOSTIC_LOGS 0
 #endif
 
+inline const char* GetRuntimeLogFileName()
+{
+#if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
+    return "SuperSkillWnd_probe.log";
+#else
+    return "SuperSkillWnd.log";
+#endif
+}
+
+inline bool GetHookModuleDirectoryA(char* outDir, size_t outDirCount)
+{
+    if (!outDir || outDirCount == 0)
+        return false;
+
+    outDir[0] = '\0';
+
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&GetHookModuleDirectoryA),
+            &module))
+    {
+        return false;
+    }
+
+    char modulePath[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameA(module, modulePath, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return false;
+
+    for (DWORD i = length; i > 0; --i)
+    {
+        if (modulePath[i - 1] == '\\' || modulePath[i - 1] == '/')
+        {
+            modulePath[i - 1] = '\0';
+            break;
+        }
+    }
+
+    strncpy_s(outDir, outDirCount, modulePath, _TRUNCATE);
+    return outDir[0] != '\0';
+}
+
+inline bool BuildRuntimeLogPathFromDirectoryA(const char* dir, char* outPath, size_t outPathCount)
+{
+    if (!dir || !dir[0] || !outPath || outPathCount == 0)
+        return false;
+
+    const size_t dirLength = strlen(dir);
+    const char* separator =
+        (dirLength > 0 && (dir[dirLength - 1] == '\\' || dir[dirLength - 1] == '/')) ? "" : "\\";
+    const int written = _snprintf_s(
+        outPath,
+        outPathCount,
+        _TRUNCATE,
+        "%s%s%s",
+        dir,
+        separator,
+        GetRuntimeLogFileName());
+    return written >= 0 && outPath[0] != '\0';
+}
+
+inline char* RuntimeLogPathCacheA()
+{
+#if SSW_ENABLE_RUNTIME_LOGS
+    static char s_cachedPath[MAX_PATH] = {};
+    return s_cachedPath;
+#else
+    return nullptr;
+#endif
+}
+
+inline FILE* OpenRuntimeLogFile(const char* mode)
+{
+#if SSW_ENABLE_RUNTIME_LOGS
+    if (!mode || !mode[0])
+        return nullptr;
+
+    char* cachedPath = RuntimeLogPathCacheA();
+    if (cachedPath && cachedPath[0])
+    {
+        FILE* cachedFile = fopen(cachedPath, mode);
+        if (cachedFile)
+            return cachedFile;
+        cachedPath[0] = '\0';
+    }
+
+    char candidatePath[MAX_PATH] = {};
+    char dir[MAX_PATH] = {};
+    if (GetHookModuleDirectoryA(dir, sizeof(dir)) &&
+        BuildRuntimeLogPathFromDirectoryA(dir, candidatePath, sizeof(candidatePath)))
+    {
+        FILE* hookDirFile = fopen(candidatePath, mode);
+        if (hookDirFile)
+        {
+            if (cachedPath)
+                strncpy_s(cachedPath, MAX_PATH, candidatePath, _TRUNCATE);
+            return hookDirFile;
+        }
+    }
+
+    char tempDir[MAX_PATH] = {};
+    const DWORD tempDirLength = GetTempPathA(MAX_PATH, tempDir);
+    if (tempDirLength > 0 &&
+        tempDirLength < MAX_PATH &&
+        BuildRuntimeLogPathFromDirectoryA(tempDir, candidatePath, sizeof(candidatePath)))
+    {
+        FILE* tempFile = fopen(candidatePath, mode);
+        if (tempFile)
+        {
+            if (cachedPath)
+                strncpy_s(cachedPath, MAX_PATH, candidatePath, _TRUNCATE);
+            return tempFile;
+        }
+    }
+
+    FILE* localFile = fopen(GetRuntimeLogFileName(), mode);
+    if (localFile && cachedPath)
+        strncpy_s(cachedPath, MAX_PATH, GetRuntimeLogFileName(), _TRUNCATE);
+    return localFile;
+#else
+    (void)mode;
+    return nullptr;
+#endif
+}
+
+inline const char* GetRuntimeLogPathA()
+{
+#if SSW_ENABLE_RUNTIME_LOGS
+    char* cachedPath = RuntimeLogPathCacheA();
+    if (!cachedPath)
+        return "";
+
+    if (!cachedPath[0])
+    {
+        FILE* file = OpenRuntimeLogFile("a");
+        if (file)
+            fclose(file);
+        if (!cachedPath[0])
+        {
+            char dir[MAX_PATH] = {};
+            if (GetHookModuleDirectoryA(dir, sizeof(dir)))
+                BuildRuntimeLogPathFromDirectoryA(dir, cachedPath, MAX_PATH);
+        }
+        if (!cachedPath[0])
+            strncpy_s(cachedPath, MAX_PATH, GetRuntimeLogFileName(), _TRUNCATE);
+    }
+    return cachedPath;
+#else
+    return "";
+#endif
+}
+
 inline void WriteLog(const char* msg)
 {
 #if SSW_ENABLE_RUNTIME_LOGS
-    FILE* f = fopen(LOG_FILE, "a");
+    FILE* f = OpenRuntimeLogFile("a");
     if (f) { fprintf(f, "%s\n", msg); fclose(f); }
 #else
     (void)msg;
@@ -95,6 +248,16 @@ inline bool EnableIndependentBuffOverlayDiagnosticLogs()
 inline bool EnableAbilityRedDiagnosticLogs()
 {
     return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+}
+
+inline bool EnableAbilityRedObservationHooks()
+{
+    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+}
+
+inline bool EnableSceneFadeObservationHooks()
+{
+    return false;
 }
 
 inline bool EnableSuperSkillSyncStateDiagnosticLogs()

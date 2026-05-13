@@ -353,6 +353,36 @@ namespace
         return value > -10000 && value < 10000;
     }
 
+    bool IsExpandedQuickSlotWindowSize(int w, int h)
+    {
+        return w >= 110 && w <= 220 && h >= 45 && h <= 95;
+    }
+
+    bool IsCollapsedQuickSlotWindowSize(int w, int h)
+    {
+        return w >= 12 && w <= 96 && h >= 12 && h <= 56;
+    }
+
+    void ApplyQuickSlotDefaultOriginForClient(RetroSkillRuntimeState& state, int clientW, int clientH)
+    {
+        if (clientW == 800 && clientH == 600)
+        {
+            state.quickSlotBarOriginX = 661;
+            state.quickSlotBarOriginY = 470;
+        }
+        else if (clientW > 0 && clientH > 0 && clientW <= 820 && clientH <= 620)
+        {
+            state.quickSlotBarOriginX = 661;
+            state.quickSlotBarOriginY = 470;
+        }
+        else if (clientW > 0 && clientH > 0)
+        {
+            state.quickSlotBarOriginX = SKILL_BAR_ORIGIN_X;
+            const int quickSlotBottomMargin = 768 - SKILL_BAR_ORIGIN_Y;
+            state.quickSlotBarOriginY = clientH - quickSlotBottomMargin;
+        }
+    }
+
     bool ResolveQuickSlotProbePos(uintptr_t wnd, int* outX, int* outY, const char** outSource)
     {
         if (!wnd || !outX || !outY)
@@ -393,6 +423,38 @@ namespace
         }
 
         return false;
+    }
+
+    bool ResolveQuickSlotLiveRect(uintptr_t wnd, QuickSlotWindowProbe* outRect, bool* outCollapsed)
+    {
+        if (!wnd || !outRect || SafeIsBadReadPtr((void*)wnd, 0x30))
+            return false;
+
+        int x = 0;
+        int y = 0;
+        const char* posSource = "none";
+        if (!ResolveQuickSlotProbePos(wnd, &x, &y, &posSource))
+            return false;
+
+        const int w = CWnd_GetWidth(wnd);
+        const int h = CWnd_GetHeight(wnd);
+        if (w <= 0 || w >= 4000 || h <= 0 || h >= 4000)
+            return false;
+        const bool expanded = IsExpandedQuickSlotWindowSize(w, h);
+        const bool collapsed = IsCollapsedQuickSlotWindowSize(w, h);
+        if (!expanded && !collapsed)
+            return false;
+
+        outRect->found = true;
+        outRect->wnd = wnd;
+        outRect->x = x;
+        outRect->y = y;
+        outRect->w = w;
+        outRect->h = h;
+        outRect->posSource = posSource;
+        if (outCollapsed)
+            *outCollapsed = collapsed && !expanded;
+        return true;
     }
 
     bool ProbeQuickSlotTopLevelWindow(int expectedOriginX, int expectedOriginY, bool wantCollapsedCandidate, QuickSlotWindowProbe* outProbe)
@@ -1184,8 +1246,6 @@ namespace
         SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
         if (entries.empty())
         {
-            if (EnableIndependentBuffOverlayDiagnosticLogs())
-                WriteLog("[IndependentBuffOverlayRect] d3d8 fail: entries empty");
             return false;
         }
 
@@ -1463,6 +1523,8 @@ namespace
 
     void RenderObservedSceneFadeMask()
     {
+        if (!EnableSceneFadeObservationHooks())
+            return;
         if (!g_overlay8.hwnd)
             return;
 
@@ -1850,42 +1912,134 @@ namespace
         {
             clientW = clientRect.right - clientRect.left;
             clientH = clientRect.bottom - clientRect.top;
-            if (clientW == 800 && clientH == 600)
+            ApplyQuickSlotDefaultOriginForClient(state, clientW, clientH);
+        }
+
+        uintptr_t globalStatusBar = 0;
+        if (!SafeIsBadReadPtr((void*)ADDR_StatusBar, 4))
+            globalStatusBar = *(uintptr_t*)ADDR_StatusBar;
+        const uintptr_t cachedStatusBar = SkillOverlayBridgeGetObservedStatusBarPtr();
+
+        int statusBarX = 0;
+        int statusBarY = 0;
+        int statusBarW = 0;
+        int statusBarH = 0;
+        const char* quickSlotSource = "default";
+        const char* quickSlotPosSource = "default";
+        bool hasStatusBar = false;
+        bool usedTopLevelProbe = false;
+        QuickSlotWindowProbe expandedProbe = {};
+        QuickSlotWindowProbe collapsedProbe = {};
+        QuickSlotWindowProbe statusRect = {};
+        uintptr_t statusBar = globalStatusBar;
+        bool statusRectCollapsed = false;
+        if (ResolveQuickSlotLiveRect(statusBar, &statusRect, &statusRectCollapsed))
+        {
+            hasStatusBar = true;
+            quickSlotSource = "status";
+        }
+        else if (cachedStatusBar && cachedStatusBar != globalStatusBar &&
+                 ResolveQuickSlotLiveRect(cachedStatusBar, &statusRect, &statusRectCollapsed))
+        {
+            statusBar = cachedStatusBar;
+            hasStatusBar = true;
+            quickSlotSource = "cached";
+        }
+
+        if (hasStatusBar)
+        {
+            statusBarX = statusRect.x;
+            statusBarY = statusRect.y;
+            statusBarW = statusRect.w;
+            statusBarH = statusRect.h;
+            quickSlotPosSource = statusRect.posSource ? statusRect.posSource : "unknown";
+            state.quickSlotBarOriginX = statusBarX;
+            state.quickSlotBarOriginY = statusBarY;
+            state.quickSlotBarCollapsed = statusRectCollapsed;
+            state.quickSlotBarVisible = true;
+            state.quickSlotBarAcceptDrop = !state.quickSlotBarCollapsed;
+        }
+        else
+        {
+            if (ProbeQuickSlotTopLevelWindow(state.quickSlotBarOriginX, state.quickSlotBarOriginY, false, &expandedProbe))
             {
-                state.quickSlotBarOriginX = 661;
-                state.quickSlotBarOriginY = 470;
+                usedTopLevelProbe = true;
+                state.quickSlotBarCollapsed = false;
+                state.quickSlotBarVisible = true;
+                state.quickSlotBarAcceptDrop = true;
+                statusBarX = expandedProbe.x;
+                statusBarY = expandedProbe.y;
+                statusBarW = expandedProbe.w;
+                statusBarH = expandedProbe.h;
+                quickSlotSource = "probe";
+                quickSlotPosSource = expandedProbe.posSource ? expandedProbe.posSource : "unknown";
+                state.quickSlotBarOriginX = expandedProbe.x;
+                state.quickSlotBarOriginY = expandedProbe.y;
             }
-            else if (clientW == 1024 && clientH == 768)
+            else if (ProbeQuickSlotTopLevelWindow(state.quickSlotBarOriginX, state.quickSlotBarOriginY, true, &collapsedProbe))
             {
-                state.quickSlotBarOriginX = 883;
-                state.quickSlotBarOriginY = 697;
-            }
-            else if (clientW > 0 && clientH > 0 && clientW <= 820 && clientH <= 620)
-            {
-                state.quickSlotBarOriginX = 661;
-                state.quickSlotBarOriginY = 470;
+                usedTopLevelProbe = true;
+                state.quickSlotBarCollapsed = true;
+                state.quickSlotBarVisible = true;
+                state.quickSlotBarAcceptDrop = false;
+                statusBarX = collapsedProbe.x;
+                statusBarY = collapsedProbe.y;
+                statusBarW = collapsedProbe.w;
+                statusBarH = collapsedProbe.h;
+                quickSlotSource = "probe";
+                quickSlotPosSource = collapsedProbe.posSource ? collapsedProbe.posSource : "unknown";
+                state.quickSlotBarOriginX = collapsedProbe.x;
+                state.quickSlotBarOriginY = collapsedProbe.y;
             }
         }
 
-        uintptr_t statusBar = 0;
-        if (!SafeIsBadReadPtr((void*)ADDR_StatusBar, 4))
-            statusBar = *(uintptr_t*)ADDR_StatusBar;
-
-        if (statusBar && !SafeIsBadReadPtr((void*)statusBar, 0x30))
+        static int s_quickSlotLogCount = 0;
+        static int s_lastClientW = -1;
+        static int s_lastClientH = -1;
+        static int s_lastOriginX = -1;
+        static int s_lastOriginY = -1;
+        static int s_lastStatusBarW = -1;
+        static int s_lastStatusBarH = -1;
+        static int s_lastCollapsed = -1;
+        static int s_lastAcceptDrop = -1;
+        static uintptr_t s_lastStatusBar = 0;
+        static uintptr_t s_lastCachedStatusBar = 0;
+        static uintptr_t s_lastProbeWnd = 0;
+        const uintptr_t probeWnd = expandedProbe.wnd ? expandedProbe.wnd : collapsedProbe.wnd;
+        if (s_quickSlotLogCount < 80 &&
+            (clientW != s_lastClientW || clientH != s_lastClientH ||
+             state.quickSlotBarOriginX != s_lastOriginX || state.quickSlotBarOriginY != s_lastOriginY ||
+             statusBarW != s_lastStatusBarW || statusBarH != s_lastStatusBarH ||
+             (state.quickSlotBarCollapsed ? 1 : 0) != s_lastCollapsed ||
+             (state.quickSlotBarAcceptDrop ? 1 : 0) != s_lastAcceptDrop ||
+             statusBar != s_lastStatusBar ||
+             cachedStatusBar != s_lastCachedStatusBar ||
+             probeWnd != s_lastProbeWnd))
         {
-            const int statusBarX = CWnd_GetX(statusBar);
-            const int statusBarY = CWnd_GetY(statusBar);
-            const int statusBarW = CWnd_GetWidth(statusBar);
-            const int statusBarH = CWnd_GetHeight(statusBar);
-            if (statusBarX > -10000 && statusBarX < 10000 &&
-                statusBarY > -10000 && statusBarY < 10000 &&
-                statusBarW > 0 && statusBarW < 4000 &&
-                statusBarH > 0 && statusBarH < 4000)
-            {
-                state.quickSlotBarCollapsed = (statusBarW < 170) || (statusBarH < 55);
-                state.quickSlotBarVisible = true;
-                state.quickSlotBarAcceptDrop = !state.quickSlotBarCollapsed;
-            }
+            WriteLogFmt("[QuickSlotBar] d3d8 client=%dx%d origin=(%d,%d) accept=%d collapsed=%d source=%s pos=%s statusBar=0x%08X cached=0x%08X probeWnd=0x%08X usedProbe=%d rect=(%d,%d,%d,%d)",
+                clientW, clientH,
+                state.quickSlotBarOriginX, state.quickSlotBarOriginY,
+                state.quickSlotBarAcceptDrop ? 1 : 0,
+                state.quickSlotBarCollapsed ? 1 : 0,
+                quickSlotSource,
+                quickSlotPosSource,
+                (DWORD)statusBar,
+                (DWORD)cachedStatusBar,
+                (DWORD)probeWnd,
+                usedTopLevelProbe ? 1 : 0,
+                statusBarX, statusBarY, statusBarW, statusBarH);
+            s_lastClientW = clientW;
+            s_lastClientH = clientH;
+            s_lastOriginX = state.quickSlotBarOriginX;
+            s_lastOriginY = state.quickSlotBarOriginY;
+            s_lastStatusBarW = statusBarW;
+            s_lastStatusBarH = statusBarH;
+            s_lastCollapsed = state.quickSlotBarCollapsed ? 1 : 0;
+            s_lastAcceptDrop = state.quickSlotBarAcceptDrop ? 1 : 0;
+            s_lastStatusBar = statusBar;
+            s_lastCachedStatusBar = cachedStatusBar;
+            s_lastProbeWnd = probeWnd;
+            ++s_quickSlotLogCount;
         }
     }
 
@@ -1902,7 +2056,12 @@ namespace
         IMGUI_CHECKVERSION();
         g_overlay8.context = ImGui::CreateContext();
         if (!g_overlay8.context)
+        {
+            WriteLogFmt("[D3D8ImGuiOverlay] init fail: CreateContext hwnd=0x%08X device=0x%08X",
+                (DWORD)(uintptr_t)hwnd,
+                (DWORD)(uintptr_t)device8);
             return false;
+        }
 
         ImGui::SetCurrentContext(g_overlay8.context);
         ImGuiIO& io = ImGui::GetIO();
@@ -1916,12 +2075,18 @@ namespace
 
         if (!ImGui_ImplWin32_Init(hwnd))
         {
+            WriteLogFmt("[D3D8ImGuiOverlay] init fail: ImGui_ImplWin32_Init hwnd=0x%08X device=0x%08X",
+                (DWORD)(uintptr_t)hwnd,
+                (DWORD)(uintptr_t)device8);
             ImGui::DestroyContext(g_overlay8.context);
             g_overlay8 = SuperD3D8OverlayRuntime{};
             return false;
         }
         if (!ImGui_ImplD3D8_Init(device8))
         {
+            WriteLogFmt("[D3D8ImGuiOverlay] init fail: ImGui_ImplD3D8_Init hwnd=0x%08X device=0x%08X",
+                (DWORD)(uintptr_t)hwnd,
+                (DWORD)(uintptr_t)device8);
             ImGui_ImplWin32_Shutdown();
             ImGui::DestroyContext(g_overlay8.context);
             g_overlay8 = SuperD3D8OverlayRuntime{};
@@ -2143,9 +2308,34 @@ bool SuperD3D8OverlayHandleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 void SuperD3D8OverlayRender(void* device8)
 {
     if (!g_overlay8.initialized || !g_overlay8.visible || !g_overlay8.context)
+    {
+        static DWORD s_lastRenderSkipGateLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastRenderSkipGateLogTick > 1000)
+        {
+            s_lastRenderSkipGateLogTick = now;
+            WriteLogFmt("[D3D8OverlayRenderSkip] init=%d visible=%d ctx=%d argDev=0x%08X storedDev=0x%08X",
+                g_overlay8.initialized ? 1 : 0,
+                g_overlay8.visible ? 1 : 0,
+                g_overlay8.context ? 1 : 0,
+                (DWORD)(uintptr_t)device8,
+                (DWORD)(uintptr_t)g_overlay8.device);
+        }
         return;
+    }
     if (!device8 || device8 != g_overlay8.device)
+    {
+        static DWORD s_lastRenderSkipDeviceLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastRenderSkipDeviceLogTick > 1000)
+        {
+            s_lastRenderSkipDeviceLogTick = now;
+            WriteLogFmt("[D3D8OverlayRenderSkip] device mismatch argDev=0x%08X storedDev=0x%08X",
+                (DWORD)(uintptr_t)device8,
+                (DWORD)(uintptr_t)g_overlay8.device);
+        }
         return;
+    }
     std::vector<IndependentBuffOverlayEntry> independentBuffEntries;
     SkillOverlayBridgeGetIndependentBuffOverlayEntries(independentBuffEntries);
     const bool hasIndependentBuffOverlay = !independentBuffEntries.empty();
@@ -2261,11 +2451,42 @@ void SuperD3D8OverlayRender(void* device8)
     DWORD* vt = *(DWORD**)device8;
     auto fnBeginScene = (pfn_D3D8Scene)(void*)vt[D3D8VT::BeginScene];
     auto fnEndScene = (pfn_D3D8Scene)(void*)vt[D3D8VT::EndScene];
-    if (fnBeginScene && fnEndScene && fnBeginScene(device8) >= 0)
+    HRESULT beginHr = D3DERR_INVALIDCALL;
+    if (fnBeginScene)
+        beginHr = fnBeginScene(device8);
+    if (fnBeginScene && fnEndScene && beginHr >= 0)
     {
         ImGui::Render();
         ImGui_ImplD3D8_RenderDrawData(ImGui::GetDrawData());
         fnEndScene(device8);
+        static DWORD s_lastRenderOkLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastRenderOkLogTick > 1000)
+        {
+            s_lastRenderOkLogTick = now;
+            WriteLogFmt("[D3D8OverlayRender] ok btn=%d anchor=(%d,%d) drawLists=%d vertices=%d",
+                HasSuperButtonRect() ? 1 : 0,
+                g_overlay8.anchorX,
+                g_overlay8.anchorY,
+                ImGui::GetDrawData() ? ImGui::GetDrawData()->CmdListsCount : 0,
+                ImGui::GetDrawData() ? ImGui::GetDrawData()->TotalVtxCount : 0);
+        }
+    }
+    else
+    {
+        static DWORD s_lastRenderSceneFailLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastRenderSceneFailLogTick > 1000)
+        {
+            s_lastRenderSceneFailLogTick = now;
+            WriteLogFmt("[D3D8OverlayRenderScene] hasBegin=%d hasEnd=%d beginHr=0x%08X btn=%d anchor=(%d,%d)",
+                fnBeginScene ? 1 : 0,
+                fnEndScene ? 1 : 0,
+                (DWORD)beginHr,
+                HasSuperButtonRect() ? 1 : 0,
+                g_overlay8.anchorX,
+                g_overlay8.anchorY);
+        }
     }
 }
 
