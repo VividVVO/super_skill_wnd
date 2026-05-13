@@ -57,6 +57,10 @@ project.nuget.cache
 *.log
 *.tmp
 *.temp
+
+# Local tool state
+custom_mount_ids.json
+pending_skills.json
 *.cache
 
 # OS files
