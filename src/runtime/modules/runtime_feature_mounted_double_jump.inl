@@ -1,8 +1,12 @@
+// 骑宠二段跳/恶魔跳跃共享装配模块：
+// - `doubleJumpHooks` 负责二段跳主链，同时也承载两条链共用的基础 gate。
+// - `demonJumpHooks` 只负责恶魔跳跃专属的 trace / packet / late / context 分支。
 static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
 {
     bool anyOk = false;
 
-    if (kEnableMountedDoubleJumpRuntimeHooks)
+    if (kEnableMountedDoubleJumpRuntimeHooks ||
+        kEnableMountedDemonJumpRuntimeHooks)
     {
         oMountedSkillWhitelist7CF270 = (tSkillNativeIdGateFn)InstallInlineHook(
             ADDR_7CF270, (void *)hkMountedSkillWhitelist7CF270);
@@ -24,16 +28,6 @@ static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
             anyOk = true;
         if (SetupMountedUnknownSkillReleaseBranchHook())
             anyOk = true;
-        if (SetupMountedDemonJumpCrashTraceHooks())
-            anyOk = true;
-        if (SetupMountedDemonJumpPacketObserveHooks())
-            anyOk = true;
-        if (SetupMountedDemonJumpLatePathHooks())
-            anyOk = true;
-        if (SetupMountedDemonJumpActionTraceHooks())
-            anyOk = true;
-        if (SetupMountedDemonJumpRequirementBypassHook())
-            anyOk = true;
         if (SetupMountedUseFailPromptSuppressHook())
             anyOk = true;
 
@@ -49,22 +43,6 @@ static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
         {
             WriteLog("[MountDoubleJump] hook failed: 42DE20");
         }
-
-        oMountedDemonJumpContextClear433380 =
-            (tMountedDemonJumpContextClearFn)InstallInlineHook(
-                ADDR_MountedDemonJumpContextClear433380,
-                (void *)hkMountedDemonJumpContextClear433380);
-        if (oMountedDemonJumpContextClear433380)
-        {
-            anyOk = true;
-            WriteLogFmt(
-                "[MountDemonJumpContext] OK(433380): tramp=0x%08X",
-                (DWORD)(uintptr_t)oMountedDemonJumpContextClear433380);
-        }
-        else
-        {
-            WriteLog("[MountDemonJumpContext] hook failed: 433380");
-        }
     }
     else
     {
@@ -72,6 +50,56 @@ static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
         oMountedSkillContextGateA9BF40 = nullptr;
         oMountedStateGate42DE20 = nullptr;
         oMountedUseFailPromptAE6260 = nullptr;
+        g_MountedSkillContextGateCallsiteOriginalTarget = 0;
+        g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
+        WriteLog("[MountDoubleJump] runtime hooks disabled");
+    }
+
+    return anyOk;
+}
+
+static bool SetupMountedDemonJumpRuntimeFeatureHooks()
+{
+    bool anyOk = false;
+
+    if (kEnableMountedDemonJumpRuntimeHooks)
+    {
+        if (SetupMountedDemonJumpCrashTraceHooks())
+            anyOk = true;
+        if (SetupMountedDemonJumpPacketObserveHooks())
+            anyOk = true;
+        if (SetupMountedDemonJumpLatePathHooks())
+            anyOk = true;
+        if (SetupMountedDemonJumpActionTraceHooks())
+            anyOk = true;
+        if (SetupMountedDemonJumpRequirementBypassHook())
+            anyOk = true;
+
+        if (!oMountedDemonJumpContextClear433380)
+        {
+            oMountedDemonJumpContextClear433380 =
+                (tMountedDemonJumpContextClearFn)InstallInlineHook(
+                    ADDR_MountedDemonJumpContextClear433380,
+                    (void *)hkMountedDemonJumpContextClear433380);
+            if (oMountedDemonJumpContextClear433380)
+            {
+                anyOk = true;
+                WriteLogFmt(
+                    "[MountDemonJumpContext] OK(433380): tramp=0x%08X",
+                    (DWORD)(uintptr_t)oMountedDemonJumpContextClear433380);
+            }
+            else
+            {
+                WriteLog("[MountDemonJumpContext] hook failed: 433380");
+            }
+        }
+        else
+        {
+            anyOk = true;
+        }
+    }
+    else
+    {
         oMountedDemonJumpContextClear433380 = nullptr;
         oMountedSkillPacketDispatchB26760 = nullptr;
         oMountedSkillAttackPacketB28A00 = nullptr;
@@ -112,9 +140,7 @@ static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
         oMountedDemonJumpActionRouteB24EA0 = nullptr;
         oMountedDemonJumpActionRouteB26550 = nullptr;
         oMountedDemonJumpActionRouteB26050 = nullptr;
-        g_MountedSkillContextGateCallsiteOriginalTarget = 0;
-        g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
-        WriteLog("[MountDoubleJump] runtime hooks disabled");
+        WriteLog("[MountDemonJump] runtime hooks disabled");
     }
 
     return anyOk;

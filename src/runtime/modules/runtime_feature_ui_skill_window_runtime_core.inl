@@ -1249,6 +1249,7 @@ static void ReleaseSecondChildCarrierProbeHotkey()
 }
 #endif
 
+// SkillWnd 核心运行时模块：负责面板生命周期、消息、移动、刷新、绘制和列表过滤。
 static bool IsPointInRectPad(int mx, int my, int x, int y, int w, int h, int pad)
 {
     return (mx >= (x - pad) && mx < (x + w + pad) &&

@@ -1,3 +1,4 @@
+// 骑宠飞行映射模块：负责飞行技能映射、soaring gate 和 family gate 装配。
 static bool SetupMountFlightMappingFeatureHooks()
 {
     bool anyOk = false;

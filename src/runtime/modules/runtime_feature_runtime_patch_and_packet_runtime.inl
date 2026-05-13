@@ -422,6 +422,31 @@ static uintptr_t TryExtractPotentialIncreaseAddressFromRecvStub(BYTE* stubTarget
     return 0;
 }
 
+static uintptr_t TryExtractRuntimePasswordAddressFromRecvStub(BYTE* stubTarget)
+{
+    if (!stubTarget)
+        return 0;
+
+    for (size_t i = 0; i + 13 < 0x200; ++i)
+    {
+        BYTE* p = stubTarget + i;
+        if (p[0] == 0x0F &&
+            p[1] == 0xB7 &&
+            p[2] == 0xC0 &&
+            p[3] == 0x8D &&
+            p[4] == 0x48 &&
+            p[5] == 0xF0 &&
+            p[6] == 0x60 &&
+            p[7] == 0x8B &&
+            p[8] == 0x15)
+        {
+            return *(DWORD*)(p + 9);
+        }
+    }
+
+    return 0;
+}
+
 static bool PatchExternalPotentialIncreaseStub(BYTE* stubTarget)
 {
     if (!stubTarget || !g_ExternalPotentialIncreaseAddressRuntime)

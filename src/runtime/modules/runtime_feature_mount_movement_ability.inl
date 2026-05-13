@@ -1,3 +1,4 @@
+// 骑宠移动能力模块：负责 AbilityRed 移动保护、setter 防护和 output clamp 装配。
 static bool SetupMountMovementAbilityFeatureHooks()
 {
     bool anyOk = false;

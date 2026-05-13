@@ -1,6 +1,7 @@
 #include "runtime/feature_switches.h"
 
 #include "core/Common.h"
+#include "util/skill_config_package.h"
 #include "util/runtime_paths.h"
 
 #include <windows.h>
@@ -30,32 +31,36 @@ namespace
 
     const FeatureSwitchDefinition kFeatureSwitchDefinitions[] =
     {
-        {FeatureSwitchId::SkillReleaseNativeRouteArm, "skill.release.nativeRouteArm", true},
-        {FeatureSwitchId::MountedRuntimeRouteArm, "mount.runtime.routeArm", true},
-        {FeatureSwitchId::MountedMovementOverride, "mount.movement.override", true},
-        {FeatureSwitchId::MountedSoaringOverride, "mount.movement.soaringOverride", true},
-        {FeatureSwitchId::PacketRewritePipeline, "packet.pipeline.enabled", true},
-        {FeatureSwitchId::PacketIndependentBuffCancelRewrite, "packet.independentBuff.cancelRewrite", true},
-        {FeatureSwitchId::PacketSuperSkillUpgradeRewrite, "packet.superSkill.upgradeRewrite", true},
-        {FeatureSwitchId::PacketPassiveAttackExpansion, "packet.passive.attackExpansion", true},
-        {FeatureSwitchId::PacketPassiveDamageRewrite, "packet.passive.damageRewrite", true},
-        {FeatureSwitchId::PacketActiveNativeReleaseRewrite, "packet.activeNativeRelease.rewrite", true},
-        {FeatureSwitchId::PacketMountedRuntimeSpecialMoveRewrite, "packet.mountRuntime.specialMoveRewrite", true},
-        {FeatureSwitchId::PacketProxyRouteRewrite, "packet.proxyRoute.rewrite", true},
-        {FeatureSwitchId::MountedDoubleJumpRuntimeHooks, "runtime.mount.doubleJumpHooks", true},
-        {FeatureSwitchId::MountClimbGateHooks, "runtime.mount.climbGateHooks", true},
-        {FeatureSwitchId::MountFlightMappingHooks, "runtime.mount.flightMappingHooks", true},
-        {FeatureSwitchId::MountMovementAbilityRedHooks, "runtime.mount.movementAbilityRedHooks", true},
+        {FeatureSwitchId::SkillReleaseNativeRouteArm, "skill.release.nativeRouteArm", false},
+        {FeatureSwitchId::MountedRuntimeRouteArm, "mount.runtime.routeArm", false},
+        {FeatureSwitchId::MountedMovementOverride, "mount.movement.override", false},
+        {FeatureSwitchId::MountedSoaringOverride, "mount.movement.soaringOverride", false},
+        {FeatureSwitchId::PacketRewritePipeline, "packet.pipeline.enabled", false},
+        {FeatureSwitchId::PacketIndependentBuffCancelRewrite, "packet.independentBuff.cancelRewrite", false},
+        {FeatureSwitchId::PacketSuperSkillUpgradeRewrite, "packet.superSkill.upgradeRewrite", false},
+        {FeatureSwitchId::PacketPassiveAttackExpansion, "packet.passive.attackExpansion", false},
+        {FeatureSwitchId::PacketPassiveDamageRewrite, "packet.passive.damageRewrite", false},
+        {FeatureSwitchId::PacketActiveNativeReleaseRewrite, "packet.activeNativeRelease.rewrite", false},
+        {FeatureSwitchId::PacketMountedRuntimeSpecialMoveRewrite, "packet.mountRuntime.specialMoveRewrite", false},
+        {FeatureSwitchId::PacketProxyRouteRewrite, "packet.proxyRoute.rewrite", false},
+        {FeatureSwitchId::MountedDoubleJumpRuntimeHooks, "runtime.mount.doubleJumpHooks", false},
+        {FeatureSwitchId::MountedDemonJumpRuntimeHooks, "runtime.mount.demonJumpHooks", false},
+        {FeatureSwitchId::MountClimbGateHooks, "runtime.mount.climbGateHooks", false},
+        {FeatureSwitchId::MountFlightMappingHooks, "runtime.mount.flightMappingHooks", false},
+        {FeatureSwitchId::MountMovementAbilityRedHooks, "runtime.mount.movementAbilityRedHooks", false},
         {FeatureSwitchId::GlobalMovementSetterProtectionHooks, "runtime.movement.setterProtectionHooks", false},
-        {FeatureSwitchId::GlobalMovementOutputClampHook, "runtime.movement.outputClampHook", true},
-        {FeatureSwitchId::MountMovementObservationHooks, "runtime.mount.movementObservationHooks", true},
-        {FeatureSwitchId::MountedFlightPhysicsSpeedHooks, "runtime.mount.flightPhysicsSpeedHooks", true},
-        {FeatureSwitchId::MountMovementCapPatches, "runtime.mount.movementCapPatches", true},
+        {FeatureSwitchId::GlobalMovementOutputClampHook, "runtime.movement.outputClampHook", false},
+        {FeatureSwitchId::MountMovementObservationHooks, "runtime.mount.movementObservationHooks", false},
+        {FeatureSwitchId::MountedFlightPhysicsSpeedHooks, "runtime.mount.flightPhysicsSpeedHooks", false},
+        {FeatureSwitchId::MountMovementCapPatches, "runtime.mount.movementCapPatches", false},
     };
 
     bool g_featureSwitchesLoaded = false;
     std::vector<FeatureSwitchState> g_featureSwitchStates;
     std::wstring g_loadedFeatureSwitchPath;
+    FeatureSwitchReloadCallback g_featureSwitchReloadCallback = nullptr;
+    bool g_featureSwitchReloadCallbackActive = false;
+    bool g_loggedFeatureSwitchPackagePending = false;
 
     size_t ToIndex(FeatureSwitchId id)
     {
@@ -72,43 +77,7 @@ namespace
 
     bool ReadUtf8TextFile(const std::wstring& path, std::string& outText)
     {
-        outText.clear();
-
-        FILE* file = nullptr;
-        if (_wfopen_s(&file, path.c_str(), L"rb") != 0 || !file)
-            return false;
-
-        if (fseek(file, 0, SEEK_END) != 0)
-        {
-            fclose(file);
-            return false;
-        }
-
-        const long size = ftell(file);
-        if (size < 0)
-        {
-            fclose(file);
-            return false;
-        }
-
-        rewind(file);
-        outText.resize(static_cast<size_t>(size));
-        const size_t readSize = size > 0
-            ? fread(&outText[0], 1, static_cast<size_t>(size), file)
-            : 0;
-        fclose(file);
-
-        if (readSize != static_cast<size_t>(size))
-            return false;
-
-        if (outText.size() >= 3 &&
-            static_cast<unsigned char>(outText[0]) == 0xEF &&
-            static_cast<unsigned char>(outText[1]) == 0xBB &&
-            static_cast<unsigned char>(outText[2]) == 0xBF)
-        {
-            outText.erase(0, 3);
-        }
-        return true;
+        return ssw::skillpack::TryReadSkillConfigTextFile(path, outText);
     }
 
     bool TryParseJsonBoolValue(const std::string& json, const char* key, bool& outValue)
@@ -199,10 +168,37 @@ namespace
         std::string json;
         if (!ReadUtf8TextFile(g_loadedFeatureSwitchPath, json))
         {
-            WriteLogFmt(
-                "[FeatureSwitch] config missing, using defaults path=%s",
-                ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
-            return;
+            const std::wstring dllDir = ssw::path::GetHookDllDirectory();
+            const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
+            const std::wstring skillDir = ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
+            const std::wstring legacyPath = ssw::path::Combine(skillDir, L"module_switches.json");
+            if (_wcsicmp(legacyPath.c_str(), g_loadedFeatureSwitchPath.c_str()) != 0 &&
+                ReadUtf8TextFile(legacyPath, json))
+            {
+                g_loadedFeatureSwitchPath = legacyPath;
+            }
+            else
+            {
+                const bool packagePasswordPending =
+                    ssw::skillpack::IsSkillConfigPackageRuntimePasswordPending(skillDir);
+                if (packagePasswordPending)
+                {
+                    if (!g_loggedFeatureSwitchPackagePending)
+                    {
+                        WriteLogFmt(
+                            "[FeatureSwitch] package config pending runtime password, using transient disabled defaults path=%s",
+                            ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
+                        g_loggedFeatureSwitchPackagePending = true;
+                    }
+                    g_featureSwitchesLoaded = false;
+                    return;
+                }
+
+                WriteLogFmt(
+                    "[FeatureSwitch] config missing, using disabled defaults path=%s",
+                    ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
+                return;
+            }
         }
 
         int overrideCount = 0;
@@ -223,6 +219,7 @@ namespace
             "[FeatureSwitch] loaded path=%s overrides=%d",
             ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str(),
             overrideCount);
+        g_loggedFeatureSwitchPackagePending = false;
 
         for (size_t i = 0; i < sizeof(kFeatureSwitchDefinitions) / sizeof(kFeatureSwitchDefinitions[0]); ++i)
         {
@@ -257,12 +254,25 @@ bool IsFeatureEnabled(FeatureSwitchId id)
 
 void ReloadFeatureSwitches()
 {
+    ssw::skillpack::InvalidateSkillConfigPackage();
     g_featureSwitchesLoaded = false;
     g_loadedFeatureSwitchPath.clear();
     g_featureSwitchStates.clear();
     EnsureFeatureSwitchesLoaded();
+
+    FeatureSwitchReloadCallback callback = g_featureSwitchReloadCallback;
+    if (callback && !g_featureSwitchReloadCallbackActive)
+    {
+        g_featureSwitchReloadCallbackActive = true;
+        callback();
+        g_featureSwitchReloadCallbackActive = false;
+    }
+}
+
+void SetFeatureSwitchReloadCallback(FeatureSwitchReloadCallback callback)
+{
+    g_featureSwitchReloadCallback = callback;
 }
 
 } // namespace runtime
 } // namespace ssw
-

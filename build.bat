@@ -43,6 +43,8 @@ if errorlevel 1 (
     echo /MD
     echo /utf-8
     echo /EHsc
+    echo /DSSW_ENABLE_RUNTIME_LOGS=1
+    echo /DSSW_ENABLE_DIAGNOSTIC_LOGS=1
     echo /I"src"
     echo /I"src\third_party\imgui"
     echo /I"src\third_party\imgui\backends"
@@ -54,6 +56,7 @@ if errorlevel 1 (
     echo src\runtime\init_pipeline.cpp
     echo src\runtime\cleanup_pipeline.cpp
     echo src\util\runtime_paths.cpp
+    echo src\util\skill_config_package.cpp
     echo src\skill\skill_local_data.cpp
     echo src\skill\skill_packet_rewrite_router.cpp
     echo src\skill\skill_overlay_source.cpp
@@ -100,6 +103,7 @@ if errorlevel 1 (
     echo build\Debug\init_pipeline.obj
     echo build\Debug\cleanup_pipeline.obj
     echo build\Debug\runtime_paths.obj
+    echo build\Debug\skill_config_package.obj
     echo build\Debug\skill_local_data.obj
     echo build\Debug\skill_packet_rewrite_router.obj
     echo build\Debug\skill_overlay_source.obj

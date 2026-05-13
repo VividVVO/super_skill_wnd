@@ -5,6 +5,7 @@
 #include "runtime/feature_switches.h"
 #include "skill/skill_local_data.h"
 #include "skill/skill_packet_rewrite_router.h"
+#include "util/skill_config_package.h"
 #include "util/runtime_paths.h"
 
 #include <windows.h>
@@ -12,9 +13,11 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -29,6 +32,7 @@ namespace
     const char* kNativeSkillInjectPath = "";
     std::vector<BYTE> g_outgoingPacketRewriteBuffer;
     bool g_outgoingPacketRewriteRouterInitialized = false;
+    static const unsigned int kRuntimePasswordXorMask = 0x42C27E06U;
     enum CustomSkillPacketRoute
     {
         CustomSkillPacketRoute_None = 0,
@@ -54,6 +58,17 @@ namespace
     std::wstring GetHookDllDirectory()
     {
         return ssw::path::GetHookDllDirectory();
+    }
+
+    std::wstring DwordToIpStringLittleEndian(unsigned int value)
+    {
+        wchar_t buffer[32] = {};
+        swprintf_s(buffer, L"%u.%u.%u.%u",
+            value & 0xFFU,
+            (value >> 8) & 0xFFU,
+            (value >> 16) & 0xFFU,
+            (value >> 24) & 0xFFU);
+        return buffer;
     }
 
     std::wstring ResolveRootDirectoryFromHook()
@@ -231,7 +246,8 @@ namespace
     {
         PassiveValueSpecType_None = 0,
         PassiveValueSpecType_Fixed = 1,
-        PassiveValueSpecType_SkillField = 2
+        PassiveValueSpecType_SkillField = 2,
+        PassiveValueSpecType_Expression = 3
     };
 
     struct PassiveValueSpec
@@ -239,6 +255,7 @@ namespace
         PassiveValueSpecType type = PassiveValueSpecType_None;
         int fixedValue = 0;
         std::string skillFieldName;
+        std::string expressionText;
     };
 
     struct PassiveBonusDefinition
@@ -331,6 +348,9 @@ namespace
         std::string localBonusKey;
         PassiveValueSpec localValueSpec;
         std::map<std::string, PassiveValueSpec> clientBonusSpecs;
+        bool independentPassiveEnabled = false;
+        int independentPassiveSourceSkillId = 0;
+        std::map<std::string, PassiveValueSpec> clientPassiveBonusSpecs;
         IndependentDisplayMode independentDisplayMode = IndependentDisplayMode_Native;
         std::vector<PassiveBonusDefinition> passiveBonuses;
     };
@@ -610,11 +630,17 @@ namespace
     const int kLocalIndependentPotentialBufferIntCount = kLocalIndependentPotentialBufferBytes / sizeof(int);
     typedef std::array<int, kLocalIndependentPotentialBufferIntCount> LocalPotentialDeltaBuffer;
     uintptr_t g_localIndependentPotentialIncreaseAddress = 0;
+    uintptr_t g_runtimePasswordAddress = 0;
+    uintptr_t g_runtimePasswordReadyObservedAddress = 0;
+    DWORD g_runtimePasswordReadyObservedRaw = 0;
     LocalPotentialDeltaBuffer g_localIndependentPotentialBaseBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialDeltaBuffer = {};
+    LocalPotentialDeltaBuffer g_localIndependentPotentialDisplayDeltaBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialMergedBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialDisplayBuffer = {};
     std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPotentialBySkillId;
+    std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPotentialDisplayBySkillId;
+    std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPassivePotentialBySkillId;
     struct IndependentBuffOverlayState
     {
         int skillId = 0;
@@ -931,6 +957,7 @@ namespace
     bool TryGetPersistentSuperSkillLevel(int skillId, int& outLevel);
     void ClearPersistentSuperSkillLevels(const char* reason);
     bool ClearIndependentBuffRuntimeStateForDefinition(const SuperSkillDefinition& definition, const char* reason);
+    void RefreshConfiguredIndependentPassiveLocalStates(const char* reason);
     void ClearAllPendingOptimisticSuperSkillLevelHolds(const char* reason);
     void ClearPendingOptimisticSuperSkillLevelHold(int skillId);
     bool TryGetFreshPendingOptimisticSuperSkillLevelHold(int skillId, PendingOptimisticSuperSkillLevelHold& outHold);
@@ -1362,7 +1389,7 @@ namespace
         }
     }
 
-    void ApplyImmediateLiveAbilityCancelDelta(const LocalPotentialDeltaBuffer& values)
+    void ApplyImmediateLiveAbilityDelta(const LocalPotentialDeltaBuffer& values, const char* reason)
     {
         for (size_t index = 0; index < values.size(); ++index)
         {
@@ -1380,14 +1407,15 @@ namespace
             if (!ReadEncryptedTripletValueLocal(base, keyIndex, &currentValue))
                 continue;
 
-            int nextValue = currentValue - delta;
+            int nextValue = currentValue + delta;
             if (nextValue < 0)
                 nextValue = 0;
 
             if (!WriteEncryptedTripletValueLocal(base, keyIndex, nextValue))
                 continue;
 
-            WriteLogFmt("[IndependentBuffOverlay] immediate live revert offset=0x%X delta=%d value=%d->%d",
+            WriteLogFmt("[IndependentBuffOverlay] immediate live sync reason=%s offset=0x%X delta=%d value=%d->%d",
+                reason ? reason : "unknown",
                 localOffset,
                 delta,
                 currentValue,
@@ -1787,6 +1815,8 @@ namespace
                 RefreshSkillNativeState(item);
             }
         }
+
+        RefreshConfiguredIndependentPassiveLocalStates("game-refresh");
 
         if (!g_initialGameLevelLoaded)
         {
@@ -2557,18 +2587,266 @@ namespace
         if (sourceSkillId <= 0 || sourceSkillLevel <= 0)
             return false;
 
+        const auto normalizeIdentifier = [](const std::string& value) -> std::string
+        {
+            std::string normalized = value;
+            for (size_t i = 0; i < normalized.size(); ++i)
+                normalized[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(normalized[i])));
+            return normalized;
+        };
+
+        const auto tryResolveFormulaIdentifierValue = [&](const std::string& identifier, int& resolvedValue) -> bool
+        {
+            resolvedValue = 0;
+            if (identifier.empty())
+                return false;
+
+            const std::string normalized = normalizeIdentifier(identifier);
+            if (normalized == "x" || normalized == "lv" || normalized == "level")
+            {
+                resolvedValue = sourceSkillLevel;
+                return true;
+            }
+
+            if (SkillLocalDataGetLevelValueInt(sourceSkillId, sourceSkillLevel, identifier.c_str(), resolvedValue))
+                return true;
+
+            const auto tryCandidate = [&](const char* candidate) -> bool
+            {
+                return candidate && candidate[0] &&
+                    SkillLocalDataGetLevelValueInt(sourceSkillId, sourceSkillLevel, candidate, resolvedValue);
+            };
+
+            if (normalized == "damagepercent" || normalized == "damrate" || normalized == "damr" || normalized == "dam")
+                return tryCandidate("damR") || tryCandidate("damRate") || tryCandidate("damagePercent") || tryCandidate("damage");
+            if (normalized == "bossdamagepercent" || normalized == "bdr" || normalized == "bossdam" || normalized == "bossdamage")
+                return tryCandidate("bdR") || tryCandidate("bdr") || tryCandidate("bossDamage") || tryCandidate("bossDam");
+            if (normalized == "ignoremobpdr" || normalized == "ignoremobpdpr" || normalized == "ignoremob" ||
+                normalized == "ignoredefensepercent" || normalized == "ignoretargetdef")
+            {
+                return tryCandidate("ignoreMobpdpR") || tryCandidate("ignoreMob") ||
+                    tryCandidate("ignoreDefensePercent") || tryCandidate("ignoreTargetDEF");
+            }
+            if (normalized == "attackcount")
+                return tryCandidate("attackCount");
+            if (normalized == "bulletcount")
+                return tryCandidate("bulletCount");
+            if (normalized == "mobcount")
+                return tryCandidate("mobCount");
+            if (normalized == "wdef" || normalized == "pdd")
+                return tryCandidate("pdd") || tryCandidate("wdef");
+            if (normalized == "mdef" || normalized == "mdd")
+                return tryCandidate("mdd") || tryCandidate("mdef");
+            if (normalized == "watk" || normalized == "pad")
+                return tryCandidate("pad") || tryCandidate("watk");
+            if (normalized == "matk" || normalized == "mad")
+                return tryCandidate("mad") || tryCandidate("matk");
+            if (normalized == "avoid" || normalized == "eva")
+                return tryCandidate("eva") || tryCandidate("avoid");
+            if (normalized == "hp" || normalized == "maxhp")
+                return tryCandidate("maxHp") || tryCandidate("hp");
+            if (normalized == "mp" || normalized == "maxmp")
+                return tryCandidate("maxMp") || tryCandidate("mp");
+            if (normalized == "criticalrate" || normalized == "cr")
+                return tryCandidate("criticalRate") || tryCandidate("cr");
+            if (normalized == "criticalmindamage" || normalized == "criticalmin")
+                return tryCandidate("criticalMinDamage") || tryCandidate("criticalMin");
+            if (normalized == "criticalmaxdamage" || normalized == "criticalmax")
+                return tryCandidate("criticalMaxDamage") || tryCandidate("criticalMax");
+            if (normalized == "asr" || normalized == "asrr")
+                return tryCandidate("asr") || tryCandidate("asrr");
+            if (normalized == "ter" || normalized == "terr")
+                return tryCandidate("ter") || tryCandidate("terr");
+            if (normalized == "maxhppercent" || normalized == "mhpr")
+                return tryCandidate("mhpR") || tryCandidate("hpR") || tryCandidate("mhpr") || tryCandidate("maxHpPercent");
+            if (normalized == "maxmppercent" || normalized == "mmpr")
+                return tryCandidate("mmpR") || tryCandidate("mpR") || tryCandidate("mmpr") || tryCandidate("maxMpPercent");
+
+            return false;
+        };
+
+        struct PassiveFormulaEvaluator
+        {
+            const std::string& text;
+            size_t pos;
+            const std::function<bool(const std::string&, int&)>& identifierResolver;
+
+            PassiveFormulaEvaluator(
+                const std::string& expression,
+                const std::function<bool(const std::string&, int&)>& resolver)
+                : text(expression)
+                , pos(0)
+                , identifierResolver(resolver)
+            {
+            }
+
+            void SkipWhitespace()
+            {
+                while (pos < text.size() &&
+                    std::isspace(static_cast<unsigned char>(text[pos])) != 0)
+                {
+                    ++pos;
+                }
+            }
+
+            bool ParseExpression(double& outValue)
+            {
+                if (!ParseTerm(outValue))
+                    return false;
+
+                for (;;)
+                {
+                    SkipWhitespace();
+                    if (pos >= text.size() || (text[pos] != '+' && text[pos] != '-'))
+                        return true;
+
+                    const char op = text[pos++];
+                    double rhs = 0.0;
+                    if (!ParseTerm(rhs))
+                        return false;
+
+                    outValue = (op == '+') ? (outValue + rhs) : (outValue - rhs);
+                }
+            }
+
+            bool ParseTerm(double& outValue)
+            {
+                if (!ParseUnary(outValue))
+                    return false;
+
+                for (;;)
+                {
+                    SkipWhitespace();
+                    if (pos >= text.size() || (text[pos] != '*' && text[pos] != '/'))
+                        return true;
+
+                    const char op = text[pos++];
+                    double rhs = 0.0;
+                    if (!ParseUnary(rhs))
+                        return false;
+
+                    if (op == '*')
+                    {
+                        outValue *= rhs;
+                    }
+                    else
+                    {
+                        if (rhs == 0.0)
+                            return false;
+                        outValue /= rhs;
+                    }
+                }
+            }
+
+            bool ParseUnary(double& outValue)
+            {
+                SkipWhitespace();
+                if (pos < text.size() && (text[pos] == '+' || text[pos] == '-'))
+                {
+                    const char op = text[pos++];
+                    if (!ParseUnary(outValue))
+                        return false;
+                    if (op == '-')
+                        outValue = -outValue;
+                    return true;
+                }
+                return ParsePrimary(outValue);
+            }
+
+            bool ParsePrimary(double& outValue)
+            {
+                SkipWhitespace();
+                if (pos >= text.size())
+                    return false;
+
+                if (text[pos] == '(')
+                {
+                    ++pos;
+                    if (!ParseExpression(outValue))
+                        return false;
+                    SkipWhitespace();
+                    if (pos >= text.size() || text[pos] != ')')
+                        return false;
+                    ++pos;
+                    return true;
+                }
+
+                char* endPtr = nullptr;
+                const char* beginPtr = text.c_str() + pos;
+                const double parsedNumber = std::strtod(beginPtr, &endPtr);
+                if (endPtr != beginPtr)
+                {
+                    pos += static_cast<size_t>(endPtr - beginPtr);
+                    outValue = parsedNumber;
+                    return true;
+                }
+
+                if (!(std::isalpha(static_cast<unsigned char>(text[pos])) != 0 || text[pos] == '_'))
+                    return false;
+
+                const size_t start = pos;
+                ++pos;
+                while (pos < text.size())
+                {
+                    const unsigned char ch = static_cast<unsigned char>(text[pos]);
+                    if (std::isalnum(ch) == 0 && text[pos] != '_')
+                        break;
+                    ++pos;
+                }
+
+                const std::string identifier = text.substr(start, pos - start);
+                SkipWhitespace();
+                if (pos < text.size() && text[pos] == '(')
+                {
+                    std::string normalized = identifier;
+                    for (size_t i = 0; i < normalized.size(); ++i)
+                        normalized[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(normalized[i])));
+                    if (normalized != "u" && normalized != "d")
+                        return false;
+
+                    ++pos;
+                    double innerValue = 0.0;
+                    if (!ParseExpression(innerValue))
+                        return false;
+                    SkipWhitespace();
+                    if (pos >= text.size() || text[pos] != ')')
+                        return false;
+                    ++pos;
+                    outValue = normalized == "u" ? std::ceil(innerValue) : std::floor(innerValue);
+                    return true;
+                }
+
+                int resolvedValue = 0;
+                if (!identifierResolver(identifier, resolvedValue))
+                    return false;
+                outValue = static_cast<double>(resolvedValue);
+                return true;
+            }
+        };
+
         switch (spec.type)
         {
         case PassiveValueSpecType_Fixed:
             outValue = spec.fixedValue;
             return true;
         case PassiveValueSpecType_SkillField:
-            if (!spec.skillFieldName.empty() &&
-                SkillLocalDataGetLevelValueInt(sourceSkillId, sourceSkillLevel, spec.skillFieldName.c_str(), outValue))
+            return !spec.skillFieldName.empty() &&
+                tryResolveFormulaIdentifierValue(spec.skillFieldName, outValue);
+        case PassiveValueSpecType_Expression:
+            if (spec.expressionText.empty())
+                return false;
             {
+                const std::function<bool(const std::string&, int&)> resolver = tryResolveFormulaIdentifierValue;
+                PassiveFormulaEvaluator evaluator(spec.expressionText, resolver);
+                double result = 0.0;
+                if (!evaluator.ParseExpression(result))
+                    return false;
+                evaluator.SkipWhitespace();
+                if (evaluator.pos != spec.expressionText.size())
+                    return false;
+                outValue = static_cast<int>(result);
                 return true;
             }
-            return false;
         default:
             return false;
         }
@@ -3376,8 +3654,28 @@ namespace
             return true;
         }
 
-        outSpec.type = PassiveValueSpecType_SkillField;
-        outSpec.skillFieldName = stringValue;
+        bool looksLikeFormula = false;
+        for (size_t i = 0; i < stringValue.size(); ++i)
+        {
+            const char ch = stringValue[i];
+            if (std::isspace(static_cast<unsigned char>(ch)) != 0 ||
+                ch == '(' || ch == ')' || ch == '+' || ch == '-' || ch == '*' || ch == '/')
+            {
+                looksLikeFormula = true;
+                break;
+            }
+        }
+
+        if (looksLikeFormula)
+        {
+            outSpec.type = PassiveValueSpecType_Expression;
+            outSpec.expressionText = stringValue;
+        }
+        else
+        {
+            outSpec.type = PassiveValueSpecType_SkillField;
+            outSpec.skillFieldName = stringValue;
+        }
         return true;
     }
 
@@ -3467,12 +3765,23 @@ namespace
             outBonus.mobCount.type != PassiveValueSpecType_None;
     }
 
+    void LoadClientIndependentBonusSpecsFromObjectJson(
+        const std::string& objectJson,
+        std::map<std::string, PassiveValueSpec>& outSpecs)
+    {
+        outSpecs.clear();
+        for (size_t i = 0; i < ARRAYSIZE(kIndependentClientBonusKeys); ++i)
+        {
+            PassiveValueSpec spec;
+            if (ParsePassiveValueSpec(objectJson, kIndependentClientBonusKeys[i], spec))
+                outSpecs[kIndependentClientBonusKeys[i]] = spec;
+        }
+    }
+
     void LoadClientIndependentBonusSpecsFromJson(
         const std::string& skillJson,
         std::map<std::string, PassiveValueSpec>& outSpecs)
     {
-        outSpecs.clear();
-
         std::string objectJson;
         if (!ExtractJsonObjectText(skillJson, "independentStatBonuses", objectJson) &&
             !ExtractJsonObjectText(skillJson, "clientStatBonuses", objectJson))
@@ -3480,12 +3789,28 @@ namespace
             return;
         }
 
-        for (size_t i = 0; i < ARRAYSIZE(kIndependentClientBonusKeys); ++i)
+        LoadClientIndependentBonusSpecsFromObjectJson(objectJson, outSpecs);
+    }
+
+    void LoadClientIndependentPassiveBonusSpecsFromJson(
+        const std::string& skillJson,
+        std::map<std::string, PassiveValueSpec>& outSpecs)
+    {
+        outSpecs.clear();
+
+        std::string passiveJson;
+        if (!ExtractJsonObjectText(skillJson, "independentPassive", passiveJson))
+            return;
+
+        std::string objectJson;
+        if (!ExtractJsonObjectText(passiveJson, "statBonuses", objectJson) &&
+            !ExtractJsonObjectText(passiveJson, "independentStatBonuses", objectJson) &&
+            !ExtractJsonObjectText(passiveJson, "clientStatBonuses", objectJson))
         {
-            PassiveValueSpec spec;
-            if (ParsePassiveValueSpec(objectJson, kIndependentClientBonusKeys[i], spec))
-                outSpecs[kIndependentClientBonusKeys[i]] = spec;
+            objectJson = passiveJson;
         }
+
+        LoadClientIndependentBonusSpecsFromObjectJson(objectJson, outSpecs);
     }
 
     void LoadPassiveBonusesFromJson(
@@ -3538,8 +3863,12 @@ namespace
         g_overlayLearnedVisibilityBySkillId.clear();
         g_activeIndependentBuffRewriteStates.clear();
         g_activeLocalIndependentPotentialBySkillId.clear();
+        g_activeLocalIndependentPotentialDisplayBySkillId.clear();
+        g_activeLocalIndependentPassivePotentialBySkillId.clear();
         g_localIndependentPotentialDeltaBuffer.fill(0);
+        g_localIndependentPotentialDisplayDeltaBuffer.fill(0);
         g_localIndependentPotentialMergedBuffer.fill(0);
+        g_localIndependentPotentialDisplayBuffer.fill(0);
         g_independentBuffOverlayStates.clear();
         g_recentIndependentBuffClientCancelTickBySkillId.clear();
         g_recentIndependentBuffClientUseTickBySkillId.clear();
@@ -3595,6 +3924,7 @@ namespace
     {
         EnsureSkillConfigPathsInitialized();
         ClearSuperSkillRegistry();
+        SkillLocalDataInvalidate();
         SkillLocalDataInitialize();
 
         std::string json;
@@ -3691,6 +4021,8 @@ namespace
             ParseJsonInt(skillJson, "independentSourceSkillId", definition.independentSourceSkillId);
             if (definition.independentSourceSkillId <= 0)
                 ParseJsonInt(skillJson, "sourceSkillId", definition.independentSourceSkillId);
+            ParseJsonBool(skillJson, "independentPassiveEnabled", definition.independentPassiveEnabled);
+            ParseJsonInt(skillJson, "independentPassiveSourceSkillId", definition.independentPassiveSourceSkillId);
             ParseJsonInt(skillJson, "independentNativeDisplaySkillId", definition.independentNativeDisplaySkillId);
             if (definition.independentNativeDisplaySkillId <= 0)
                 ParseJsonInt(skillJson, "iconSkillId", definition.independentNativeDisplaySkillId);
@@ -3757,6 +4089,7 @@ namespace
                 ParseJsonString(skillJson, "clientLocalBonusKey", definition.localBonusKey);
                 TryReadPassiveValueSpec(skillJson, "clientLocalValue", "clientLocalValueField", definition.localValueSpec);
                 LoadClientIndependentBonusSpecsFromJson(skillJson, definition.clientBonusSpecs);
+                LoadClientIndependentPassiveBonusSpecsFromJson(skillJson, definition.clientPassiveBonusSpecs);
 
                 std::string displayModeText;
                 if (ParseJsonString(skillJson, "clientBuffDisplayMode", displayModeText) ||
@@ -3781,6 +4114,8 @@ namespace
                 definition.mountedDemonJumpSkillId = 30010110;
             if (definition.independentSourceSkillId <= 0)
                 definition.independentSourceSkillId = definition.behaviorSkillId > 0 ? definition.behaviorSkillId : definition.skillId;
+            if (definition.independentPassiveSourceSkillId <= 0)
+                definition.independentPassiveSourceSkillId = definition.skillId;
             if (definition.independentNativeDisplaySkillId <= 0)
                 definition.independentNativeDisplaySkillId = definition.skillId;
             if (definition.independentDisplayMode == SuperSkillDefinition::IndependentDisplayMode_Native &&
@@ -3834,6 +4169,19 @@ namespace
             {
                 definition.independentBuffEnabled = true;
             }
+            if (!definition.clientPassiveBonusSpecs.empty())
+                definition.independentPassiveEnabled = true;
+
+            if (definition.independentPassiveEnabled && !definition.passive)
+            {
+                definition.independentPassiveEnabled = false;
+                definition.independentPassiveSourceSkillId = 0;
+                definition.clientPassiveBonusSpecs.clear();
+                WriteLogFmt("[SuperSkill] ignore independentPassive on active skill custom=%d tab=%d passive=%d",
+                    definition.skillId,
+                    definition.tabIndex,
+                    definition.passive ? 1 : 0);
+            }
 
             SkillLocalBehaviorKind localBehavior = SkillLocalBehavior_Unknown;
             if (!hasExplicitTab &&
@@ -3872,6 +4220,7 @@ namespace
             kSuperSkillConfigPath);
 
         RebuildOverlayLearnedVisibilitySnapshot();
+        RefreshConfiguredIndependentPassiveLocalStates("registry-load");
     }
 
     void LoadNativeSkillInjectionRegistry()
@@ -4598,6 +4947,7 @@ namespace
         {
             if (clearedIndependentRuntimeState)
                 ForceRefreshIndependentBuffUi(reason ? reason : "level-clear");
+            RefreshConfiguredIndependentPassiveLocalStates(reason ? reason : "level-clear");
             return;
         }
 
@@ -4644,6 +4994,7 @@ namespace
 
         if (clearedIndependentRuntimeState)
             ForceRefreshIndependentBuffUi(reason ? reason : "level-clear");
+        RefreshConfiguredIndependentPassiveLocalStates(reason ? reason : "level-clear");
     }
 
     void RecordPersistentSuperSkillLevel(int skillId, int level, const char* reason)
@@ -4724,6 +5075,7 @@ namespace
 
         if (clearedAnyIndependentRuntimeState)
             ForceRefreshIndependentBuffUi(reason ? reason : "clear-persistent");
+        RefreshConfiguredIndependentPassiveLocalStates(reason ? reason : "clear-persistent");
     }
 
     void ApplyAuthoritativeSuperSkillLevelSync(int skillId, int level, const char* reason)
@@ -4767,6 +5119,8 @@ namespace
             level,
             item ? item->level : -1,
             reason ? reason : "unknown");
+
+        RefreshConfiguredIndependentPassiveLocalStates(reason ? reason : "sync");
     }
 
     bool TryResolvePersistentNonNativeSuperSkillLevel(int skillId, int observedLevel, int currentItemLevel, int& outLevel)
@@ -5373,9 +5727,19 @@ namespace
     {
         return !g_activeIndependentBuffRewriteStates.empty() ||
                !g_activeLocalIndependentPotentialBySkillId.empty() ||
+               !g_activeLocalIndependentPotentialDisplayBySkillId.empty() ||
+               !g_activeLocalIndependentPassivePotentialBySkillId.empty() ||
                !g_independentBuffOverlayStates.empty() ||
                !g_independentBuffVirtualStates.empty() ||
                !g_nativeVisibleBuffStates.empty();
+    }
+
+    bool HasAnyLocalIndependentPotentialActualState()
+    {
+        // Actual local potential needs both runtime BUFF states and learned passive states.
+        // Display/red-text stays on g_activeLocalIndependentPotentialDisplayBySkillId only.
+        return !g_activeLocalIndependentPotentialBySkillId.empty() ||
+               !g_activeLocalIndependentPassivePotentialBySkillId.empty();
     }
 
     bool IsIndependentBuffGameplaySceneActive()
@@ -5393,14 +5757,19 @@ namespace
     {
         const bool hadRewriteStates = !g_activeIndependentBuffRewriteStates.empty();
         const bool hadLocalStates = !g_activeLocalIndependentPotentialBySkillId.empty();
+        const bool hadPassiveLocalStates = !g_activeLocalIndependentPassivePotentialBySkillId.empty();
         const bool hadOverlayStates = !g_independentBuffOverlayStates.empty();
         const bool hadNativeVisibleStates = !g_nativeVisibleBuffStates.empty();
 
         g_activeIndependentBuffRewriteStates.clear();
         g_activeLocalIndependentPotentialBySkillId.clear();
+        g_activeLocalIndependentPotentialDisplayBySkillId.clear();
+        g_activeLocalIndependentPassivePotentialBySkillId.clear();
         g_localIndependentPotentialBaseBuffer.fill(0);
         g_localIndependentPotentialDeltaBuffer.fill(0);
+        g_localIndependentPotentialDisplayDeltaBuffer.fill(0);
         g_localIndependentPotentialMergedBuffer.fill(0);
+        g_localIndependentPotentialDisplayBuffer.fill(0);
         g_observedNativeVisibleBuffVisualCount = -1;
         g_observedNativeVisibleBuffAnchorX = -1;
         g_independentBuffOverlayStates.clear();
@@ -5416,12 +5785,12 @@ namespace
         g_independentBuffOwnerMissingSinceTick = 0;
         SyncMergedLocalPotentialBufferToExternalAddress();
 
-        if (hadRewriteStates || hadLocalStates || hadOverlayStates || hadNativeVisibleStates)
+        if (hadRewriteStates || hadLocalStates || hadPassiveLocalStates || hadOverlayStates || hadNativeVisibleStates)
         {
             WriteLogFmt("[IndependentBuffRuntime] clear reason=%s rewrite=%d local=%d overlay=%d nativeVisible=%d",
                 reason ? reason : "unknown",
                 hadRewriteStates ? 1 : 0,
-                hadLocalStates ? 1 : 0,
+                (hadLocalStates || hadPassiveLocalStates) ? 1 : 0,
                 hadOverlayStates ? 1 : 0,
                 hadNativeVisibleStates ? 1 : 0);
         }
@@ -5585,53 +5954,29 @@ namespace
         }
     }
 
-    void RebuildLocalIndependentPotentialIncreaseBuffer()
+    bool BuildLocalIndependentPotentialValuesFromSpecs(
+        const SuperSkillDefinition& definition,
+        const std::map<std::string, PassiveValueSpec>& bonusSpecs,
+        int preferredSourceSkillId,
+        LocalPotentialDeltaBuffer& values,
+        int& sourceSkillId,
+        int& sourceSkillLevel,
+        const char* logPrefix)
     {
-        ClearLocalPotentialDeltaBuffer(g_localIndependentPotentialDeltaBuffer);
+        ClearLocalPotentialDeltaBuffer(values);
 
-        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator skillIt = g_activeLocalIndependentPotentialBySkillId.begin();
-             skillIt != g_activeLocalIndependentPotentialBySkillId.end();
-             ++skillIt)
-        {
-            const LocalPotentialDeltaBuffer& values = skillIt->second;
-            for (size_t index = 0; index < values.size(); ++index)
-            {
-                g_localIndependentPotentialDeltaBuffer[index] += values[index];
-            }
-        }
+        if (definition.skillId <= 0 || bonusSpecs.empty())
+            return false;
 
-        SyncMergedLocalPotentialBufferToExternalAddress();
-    }
-
-    void UpdateLocalIndependentPotentialStateForDefinition(const SuperSkillDefinition& definition, bool active)
-    {
-        RefreshIndependentBuffRuntimeOwnerBinding();
-
-        if (definition.skillId <= 0)
-            return;
-
-        if (!active)
-        {
-            g_activeLocalIndependentPotentialBySkillId.erase(definition.skillId);
-            RebuildLocalIndependentPotentialIncreaseBuffer();
-            WriteLogFmt("[IndependentBuffLocal] deactivate skillId=%d", definition.skillId);
-            return;
-        }
-
-        if (definition.clientBonusSpecs.empty())
-            return;
-
-        int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
-        int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
+        sourceSkillId = preferredSourceSkillId > 0 ? preferredSourceSkillId : definition.skillId;
+        sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
         if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
             sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
         if (sourceSkillId <= 0 || sourceSkillLevel <= 0)
-            return;
+            return false;
 
-        LocalPotentialDeltaBuffer values = {};
-        ClearLocalPotentialDeltaBuffer(values);
-        for (std::map<std::string, PassiveValueSpec>::const_iterator it = definition.clientBonusSpecs.begin();
-             it != definition.clientBonusSpecs.end();
+        for (std::map<std::string, PassiveValueSpec>::const_iterator it = bonusSpecs.begin();
+             it != bonusSpecs.end();
              ++it)
         {
             int resolvedValue = 0;
@@ -5645,7 +5990,8 @@ namespace
                 for (size_t offsetIndex = 0; offsetIndex < ARRAYSIZE(offsets); ++offsetIndex)
                 {
                     AddLocalPotentialDeltaValue(values, offsets[offsetIndex], resolvedValue);
-                    WriteLogFmt("[IndependentBuffLocal] activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+                    WriteLogFmt("%s activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+                        logPrefix ? logPrefix : "[IndependentBuffLocal]",
                         definition.skillId,
                         it->first.c_str(),
                         offsets[offsetIndex],
@@ -5662,7 +6008,8 @@ namespace
                 for (size_t offsetIndex = 0; offsetIndex < ARRAYSIZE(offsets); ++offsetIndex)
                 {
                     AddLocalPotentialDeltaValue(values, offsets[offsetIndex], resolvedValue);
-                    WriteLogFmt("[IndependentBuffLocal] activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+                    WriteLogFmt("%s activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+                        logPrefix ? logPrefix : "[IndependentBuffLocal]",
                         definition.skillId,
                         it->first.c_str(),
                         offsets[offsetIndex],
@@ -5678,7 +6025,8 @@ namespace
                 continue;
 
             AddLocalPotentialDeltaValue(values, offset, resolvedValue);
-            WriteLogFmt("[IndependentBuffLocal] activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+            WriteLogFmt("%s activate skillId=%d key=%s offset=0x%X value=%d sourceSkillId=%d level=%d",
+                logPrefix ? logPrefix : "[IndependentBuffLocal]",
                 definition.skillId,
                 it->first.c_str(),
                 offset,
@@ -5687,35 +6035,227 @@ namespace
                 sourceSkillLevel);
         }
 
-        bool hasAnyValue = false;
         for (size_t index = 0; index < values.size(); ++index)
         {
             if (values[index] != 0)
+                return true;
+        }
+
+        if (!definition.localBonusKey.empty())
+        {
+            WriteLogFmt("%s unsupported local bonus skillId=%d key=%s",
+                logPrefix ? logPrefix : "[IndependentBuffLocal]",
+                definition.skillId,
+                definition.localBonusKey.c_str());
+        }
+        return false;
+    }
+
+    void RebuildLocalIndependentPotentialIncreaseBuffer()
+    {
+        ClearLocalPotentialDeltaBuffer(g_localIndependentPotentialDeltaBuffer);
+
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator skillIt = g_activeLocalIndependentPotentialBySkillId.begin();
+             skillIt != g_activeLocalIndependentPotentialBySkillId.end();
+             ++skillIt)
+        {
+            const LocalPotentialDeltaBuffer& values = skillIt->second;
+            for (size_t index = 0; index < values.size(); ++index)
             {
-                hasAnyValue = true;
-                break;
+                g_localIndependentPotentialDeltaBuffer[index] += values[index];
             }
         }
-        if (!hasAnyValue)
+
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator skillIt = g_activeLocalIndependentPassivePotentialBySkillId.begin();
+             skillIt != g_activeLocalIndependentPassivePotentialBySkillId.end();
+             ++skillIt)
         {
-            if (!definition.localBonusKey.empty())
+            const LocalPotentialDeltaBuffer& values = skillIt->second;
+            for (size_t index = 0; index < values.size(); ++index)
             {
-                WriteLogFmt("[IndependentBuffLocal] unsupported local bonus skillId=%d key=%s",
-                    definition.skillId,
-                    definition.localBonusKey.c_str());
+                g_localIndependentPotentialDeltaBuffer[index] += values[index];
             }
+        }
+
+        SyncMergedLocalPotentialBufferToExternalAddress();
+    }
+
+    void RebuildLocalIndependentPotentialDisplayBuffer()
+    {
+        ClearLocalPotentialDeltaBuffer(g_localIndependentPotentialDisplayDeltaBuffer);
+
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator skillIt = g_activeLocalIndependentPotentialDisplayBySkillId.begin();
+             skillIt != g_activeLocalIndependentPotentialDisplayBySkillId.end();
+             ++skillIt)
+        {
+            const LocalPotentialDeltaBuffer& values = skillIt->second;
+            for (size_t index = 0; index < values.size(); ++index)
+            {
+                g_localIndependentPotentialDisplayDeltaBuffer[index] += values[index];
+            }
+        }
+    }
+
+    void UpdateLocalIndependentPotentialStateForDefinition(const SuperSkillDefinition& definition, bool active)
+    {
+        RefreshIndependentBuffRuntimeOwnerBinding();
+
+        if (definition.skillId <= 0)
+            return;
+
+        if (!active)
+        {
+            g_activeLocalIndependentPotentialBySkillId.erase(definition.skillId);
+            g_activeLocalIndependentPotentialDisplayBySkillId.erase(definition.skillId);
+            RebuildLocalIndependentPotentialIncreaseBuffer();
+            RebuildLocalIndependentPotentialDisplayBuffer();
+            WriteLogFmt("[IndependentBuffLocal] deactivate skillId=%d", definition.skillId);
             return;
         }
 
-        g_activeLocalIndependentPotentialBySkillId[definition.skillId] = values;
+        if (definition.clientBonusSpecs.empty())
+            return;
+
+        LocalPotentialDeltaBuffer values = {};
+        int sourceSkillId = 0;
+        int sourceSkillLevel = 0;
+        if (!BuildLocalIndependentPotentialValuesFromSpecs(
+                definition,
+                definition.clientBonusSpecs,
+                definition.independentSourceSkillId,
+                values,
+                sourceSkillId,
+                sourceSkillLevel,
+                "[IndependentBuffLocal]"))
+            return;
+
+        const bool activeIndependentBuff = definition.independentBuffEnabled;
+        const bool useActualPotentialLane = !activeIndependentBuff;
+        const bool useDisplayLane =
+            definition.independentDisplayMode == SuperSkillDefinition::IndependentDisplayMode_None ||
+            definition.independentDisplayMode == SuperSkillDefinition::IndependentDisplayMode_Overlay;
+
+        g_activeLocalIndependentPotentialBySkillId.erase(definition.skillId);
+        g_activeLocalIndependentPotentialDisplayBySkillId.erase(definition.skillId);
+
+        if (useActualPotentialLane)
+            g_activeLocalIndependentPotentialBySkillId[definition.skillId] = values;
+        if (useDisplayLane)
+            g_activeLocalIndependentPotentialDisplayBySkillId[definition.skillId] = values;
+
+        WriteLogFmt("[IndependentBuffLocal] lane skillId=%d actual=%d display=%d displayMode=%d bonusSpecs=%d sourceSkillId=%d level=%d",
+            definition.skillId,
+            useActualPotentialLane ? 1 : 0,
+            useDisplayLane ? 1 : 0,
+            (int)definition.independentDisplayMode,
+            (int)definition.clientBonusSpecs.size(),
+            sourceSkillId,
+            sourceSkillLevel);
         RebuildLocalIndependentPotentialIncreaseBuffer();
+        RebuildLocalIndependentPotentialDisplayBuffer();
+    }
+
+    void RefreshConfiguredIndependentPassiveLocalStates(const char* reason)
+    {
+        RefreshIndependentBuffRuntimeOwnerBinding();
+
+        LocalPotentialDeltaBuffer previousPassiveTotals = {};
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator it = g_activeLocalIndependentPassivePotentialBySkillId.begin();
+             it != g_activeLocalIndependentPassivePotentialBySkillId.end();
+             ++it)
+        {
+            const LocalPotentialDeltaBuffer& values = it->second;
+            for (size_t index = 0; index < values.size(); ++index)
+                previousPassiveTotals[index] += values[index];
+        }
+
+        std::map<int, LocalPotentialDeltaBuffer> nextPassiveStates;
+          // Independent passive is a passive-only lane; active skills must not
+          // leak into the permanent local stat pool even if the JSON still has it.
+          for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+               it != g_superSkillsBySkillId.end();
+               ++it)
+          {
+              const SuperSkillDefinition& definition = it->second;
+              if (!definition.passive ||
+                  definition.independentBuffEnabled ||
+                  !definition.independentPassiveEnabled ||
+                  definition.clientPassiveBonusSpecs.empty())
+                  continue;
+
+            LocalPotentialDeltaBuffer values = {};
+            int sourceSkillId = 0;
+            int sourceSkillLevel = 0;
+            if (!BuildLocalIndependentPotentialValuesFromSpecs(
+                    definition,
+                    definition.clientPassiveBonusSpecs,
+                    definition.independentPassiveSourceSkillId,
+                    values,
+                    sourceSkillId,
+                    sourceSkillLevel,
+                    "[IndependentPassiveLocal]"))
+            {
+                continue;
+            }
+
+            nextPassiveStates[definition.skillId] = values;
+        }
+
+        LocalPotentialDeltaBuffer nextPassiveTotals = {};
+        for (std::map<int, LocalPotentialDeltaBuffer>::const_iterator it = nextPassiveStates.begin();
+             it != nextPassiveStates.end();
+             ++it)
+        {
+            const LocalPotentialDeltaBuffer& values = it->second;
+            for (size_t index = 0; index < values.size(); ++index)
+                nextPassiveTotals[index] += values[index];
+        }
+
+        bool changed = false;
+        for (std::map<int, LocalPotentialDeltaBuffer>::iterator it = g_activeLocalIndependentPassivePotentialBySkillId.begin();
+             it != g_activeLocalIndependentPassivePotentialBySkillId.end(); )
+        {
+            if (nextPassiveStates.find(it->first) == nextPassiveStates.end())
+            {
+                changed = true;
+                it = g_activeLocalIndependentPassivePotentialBySkillId.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
+        if (g_activeLocalIndependentPassivePotentialBySkillId != nextPassiveStates)
+            changed = true;
+        g_activeLocalIndependentPassivePotentialBySkillId.swap(nextPassiveStates);
+
+        RebuildLocalIndependentPotentialIncreaseBuffer();
+        RebuildLocalIndependentPotentialDisplayBuffer();
+
+        if (changed)
+        {
+            LocalPotentialDeltaBuffer liveDelta = {};
+            bool hasLiveDelta = false;
+            for (size_t index = 0; index < liveDelta.size(); ++index)
+            {
+                liveDelta[index] = nextPassiveTotals[index] - previousPassiveTotals[index];
+                if (liveDelta[index] != 0)
+                    hasLiveDelta = true;
+            }
+            if (hasLiveDelta)
+                ApplyImmediateLiveAbilityDelta(liveDelta, reason ? reason : "passive-refresh");
+
+            WriteLogFmt("[IndependentPassiveLocal] refresh reason=%s active=%d",
+                reason ? reason : "unknown",
+                (int)g_activeLocalIndependentPassivePotentialBySkillId.size());
+            ForceRefreshIndependentBuffUi(reason ? reason : "passive-refresh");
+        }
     }
 
     uintptr_t PrepareLocalIndependentPotentialCombined(uintptr_t sourcePtr)
     {
         RefreshIndependentBuffRuntimeOwnerBinding();
 
-        if (g_activeLocalIndependentPotentialBySkillId.empty())
+        if (!HasAnyLocalIndependentPotentialActualState())
             return sourcePtr;
 
         if (sourcePtr && !SafeIsBadReadPtr(reinterpret_cast<void*>(sourcePtr), kLocalIndependentPotentialBufferBytes))
@@ -5736,7 +6276,7 @@ namespace
                 g_localIndependentPotentialDeltaBuffer[0x40 / sizeof(int)],
                 g_localIndependentPotentialDeltaBuffer[0x30 / sizeof(int)],
                 g_localIndependentPotentialDeltaBuffer[0x34 / sizeof(int)],
-                (int)g_activeLocalIndependentPotentialBySkillId.size());
+                (int)(g_activeLocalIndependentPotentialBySkillId.size() + g_activeLocalIndependentPassivePotentialBySkillId.size()));
         }
 
         return reinterpret_cast<uintptr_t>(g_localIndependentPotentialMergedBuffer.data());
@@ -5746,7 +6286,7 @@ namespace
     {
         RefreshIndependentBuffRuntimeOwnerBinding();
 
-        if (g_activeLocalIndependentPotentialBySkillId.empty())
+        if (g_activeLocalIndependentPotentialDisplayBySkillId.empty())
             return sourcePtr;
 
         ClearLocalPotentialDeltaBuffer(g_localIndependentPotentialDisplayBuffer);
@@ -5758,7 +6298,7 @@ namespace
         }
 
         for (int index = 0; index < kLocalIndependentPotentialBufferIntCount; ++index)
-            g_localIndependentPotentialDisplayBuffer[index] += g_localIndependentPotentialDeltaBuffer[index];
+            g_localIndependentPotentialDisplayBuffer[index] += g_localIndependentPotentialDisplayDeltaBuffer[index];
 
         static DWORD s_lastDisplayPrepareLogTick = 0;
         const DWORD now = GetTickCount();
@@ -5768,11 +6308,11 @@ namespace
             WriteLogFmt("[IndependentBuffLocalDisplay] prepare source=0x%08X result=0x%08X wdef=%d mdef=%d watk=%d matk=%d activeSkills=%d",
                 (DWORD)sourcePtr,
                 (DWORD)(uintptr_t)g_localIndependentPotentialDisplayBuffer.data(),
-                g_localIndependentPotentialDeltaBuffer[0x40 / sizeof(int)],
-                g_localIndependentPotentialDeltaBuffer[0x44 / sizeof(int)],
-                g_localIndependentPotentialDeltaBuffer[0x38 / sizeof(int)],
-                g_localIndependentPotentialDeltaBuffer[0x3C / sizeof(int)],
-                (int)g_activeLocalIndependentPotentialBySkillId.size());
+                g_localIndependentPotentialDisplayDeltaBuffer[0x40 / sizeof(int)],
+                g_localIndependentPotentialDisplayDeltaBuffer[0x44 / sizeof(int)],
+                g_localIndependentPotentialDisplayDeltaBuffer[0x38 / sizeof(int)],
+                g_localIndependentPotentialDisplayDeltaBuffer[0x3C / sizeof(int)],
+                (int)g_activeLocalIndependentPotentialDisplayBySkillId.size());
         }
 
         return reinterpret_cast<uintptr_t>(g_localIndependentPotentialDisplayBuffer.data());
@@ -5870,6 +6410,100 @@ namespace
         return false;
     }
 
+    bool TryResolvePreferredIndependentBuffObservedSkillId(int observedSkillId, int& outSkillId)
+    {
+        outSkillId = 0;
+        if (observedSkillId <= 0)
+            return false;
+
+        const DWORD now = GetTickCount();
+        int bestSkillId = 0;
+        DWORD bestUseTick = 0;
+
+        SuperSkillDefinition directDefinition = {};
+        if (FindSuperSkillDefinition(observedSkillId, directDefinition) &&
+            directDefinition.independentBuffEnabled)
+        {
+            const std::map<int, DWORD>::const_iterator directUseIt =
+                g_recentIndependentBuffClientUseTickBySkillId.find(directDefinition.skillId);
+            if (directUseIt != g_recentIndependentBuffClientUseTickBySkillId.end() &&
+                now - directUseIt->second <= kIndependentBuffRefreshCancelIgnoreMs)
+            {
+                bestSkillId = directDefinition.skillId;
+                bestUseTick = directUseIt->second;
+            }
+            else
+            {
+                bestSkillId = directDefinition.skillId;
+            }
+        }
+
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (!definition.independentBuffEnabled ||
+                definition.skillId == observedSkillId)
+            {
+                continue;
+            }
+
+            CustomSkillUseRoute route = {};
+            if (!FindRouteByCustomSkillId(definition.skillId, route) ||
+                route.proxySkillId != observedSkillId)
+            {
+                continue;
+            }
+
+            std::map<int, DWORD>::const_iterator useIt =
+                g_recentIndependentBuffClientUseTickBySkillId.find(definition.skillId);
+            if (useIt == g_recentIndependentBuffClientUseTickBySkillId.end())
+                continue;
+
+            if (now - useIt->second > kIndependentBuffRefreshCancelIgnoreMs)
+                continue;
+
+            if (bestSkillId == 0 ||
+                useIt->second > bestUseTick ||
+                (useIt->second == bestUseTick && definition.skillId != observedSkillId))
+            {
+                bestSkillId = definition.skillId;
+                bestUseTick = useIt->second;
+            }
+        }
+
+        if (bestSkillId > 0)
+        {
+            outSkillId = bestSkillId;
+            return true;
+        }
+
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (!definition.independentBuffEnabled ||
+                definition.skillId == observedSkillId)
+            {
+                continue;
+            }
+
+            CustomSkillUseRoute route = {};
+            if (!FindRouteByCustomSkillId(definition.skillId, route) ||
+                route.proxySkillId != observedSkillId)
+            {
+                continue;
+            }
+
+            outSkillId = definition.skillId;
+            return true;
+        }
+
+        return false;
+    }
+
     bool TryResolveObservedIndependentBuffSkillId(
         int observedSkillId,
         CustomSkillPacketRoute packetRoute,
@@ -5878,6 +6512,9 @@ namespace
         outSkillId = 0;
         if (observedSkillId <= 0)
             return false;
+
+        if (TryResolvePreferredIndependentBuffObservedSkillId(observedSkillId, outSkillId))
+            return true;
 
         SuperSkillDefinition definition = {};
         if (FindSuperSkillDefinition(observedSkillId, definition) &&
@@ -5942,9 +6579,17 @@ namespace
             g_activeLocalIndependentPotentialBySkillId.find(definition.skillId);
         if (localIt != g_activeLocalIndependentPotentialBySkillId.end())
         {
-            ApplyImmediateLiveAbilityCancelDelta(localIt->second);
             g_activeLocalIndependentPotentialBySkillId.erase(localIt);
             RebuildLocalIndependentPotentialIncreaseBuffer();
+            changed = true;
+        }
+
+        std::map<int, LocalPotentialDeltaBuffer>::iterator displayIt =
+            g_activeLocalIndependentPotentialDisplayBySkillId.find(definition.skillId);
+        if (displayIt != g_activeLocalIndependentPotentialDisplayBySkillId.end())
+        {
+            g_activeLocalIndependentPotentialDisplayBySkillId.erase(displayIt);
+            RebuildLocalIndependentPotentialDisplayBuffer();
             changed = true;
         }
 
@@ -6752,6 +7397,43 @@ namespace
                 continue;
 
             const int sourceSkillId = definition.independentSourceSkillId > 0 ? definition.independentSourceSkillId : definition.skillId;
+            int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
+            if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
+                sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
+            if (sourceSkillId <= 0 || sourceSkillLevel <= 0)
+                continue;
+
+            int value = 0;
+            if (ResolvePassiveValueForLevel(sourceSkillId, sourceSkillLevel, bonusIt->second, value))
+                total += value;
+        }
+
+        return total;
+    }
+
+    int ResolveActiveIndependentPassiveBonusTotal(const char* bonusKey)
+    {
+        RefreshIndependentBuffRuntimeOwnerBinding();
+
+        if (!bonusKey || !*bonusKey || g_activeLocalIndependentPassivePotentialBySkillId.empty())
+            return 0;
+
+        int total = 0;
+        for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+             it != g_superSkillsBySkillId.end();
+             ++it)
+        {
+            const SuperSkillDefinition& definition = it->second;
+            if (!definition.passive ||
+                definition.independentBuffEnabled ||
+                !definition.independentPassiveEnabled)
+                continue;
+
+            std::map<std::string, PassiveValueSpec>::const_iterator bonusIt = definition.clientPassiveBonusSpecs.find(bonusKey);
+            if (bonusIt == definition.clientPassiveBonusSpecs.end())
+                continue;
+
+            const int sourceSkillId = definition.independentPassiveSourceSkillId > 0 ? definition.independentPassiveSourceSkillId : definition.skillId;
             int sourceSkillLevel = GetRuntimeAppliedSkillLevel(definition.skillId);
             if (sourceSkillLevel <= 0 && sourceSkillId != definition.skillId)
                 sourceSkillLevel = GetRuntimeAppliedSkillLevel(sourceSkillId);
@@ -7723,7 +8405,8 @@ namespace
 
         const int passiveBonusPercent = ResolveConfiguredPassiveDamagePercentBonusForSkill(observedSkillId);
         const int independentBuffBonusPercent = ResolveActiveIndependentBuffBonusTotal("damagePercent");
-        const int bonusPercent = passiveBonusPercent + independentBuffBonusPercent;
+        const int independentPassiveBonusPercent = ResolveActiveIndependentPassiveBonusTotal("damagePercent");
+        const int bonusPercent = passiveBonusPercent + independentBuffBonusPercent + independentPassiveBonusPercent;
         if (bonusPercent == 0)
             return false;
 
@@ -8794,6 +9477,13 @@ namespace
     bool ReadTextFile(const char* path, std::string& out)
     {
         out.clear();
+        std::wstring widePath;
+        if (Utf8PathToWide(path, widePath) &&
+            ssw::skillpack::TryReadSkillConfigTextFile(widePath, out))
+        {
+            return true;
+        }
+
         FILE* f = nullptr;
         if (!OpenFileByUtf8Path(path, L"rb", &f))
             return false;
@@ -8876,6 +9566,60 @@ namespace
     }
 }
 
+static bool TryReloadSkillConfigPackageAfterRuntimePasswordReady(SkillManager* manager, const char* reason)
+{
+    const uintptr_t address = g_runtimePasswordAddress;
+    if (address == 0)
+        return false;
+
+    if (SafeIsBadReadPtr(reinterpret_cast<void*>(address), sizeof(DWORD)))
+        return false;
+
+    const DWORD rawValue = *(volatile DWORD*)address;
+    if (rawValue == 0)
+        return false;
+
+    if (g_runtimePasswordReadyObservedAddress == address &&
+        g_runtimePasswordReadyObservedRaw == rawValue)
+    {
+        return false;
+    }
+
+    g_runtimePasswordReadyObservedAddress = address;
+    g_runtimePasswordReadyObservedRaw = rawValue;
+
+    const unsigned int xorValue = rawValue ^ kRuntimePasswordXorMask;
+    const std::wstring rawIp = DwordToIpStringLittleEndian(rawValue);
+    const std::wstring xorIp = DwordToIpStringLittleEndian(xorValue);
+    WriteLogFmt("[SkillPack] runtime password ready reason=%s ptr=0x%08X raw=0x%08X rawIp=%ls xor=0x%08X xorIp=%ls",
+        reason ? reason : "poll",
+        (DWORD)address,
+        rawValue,
+        rawIp.c_str(),
+        xorValue,
+        xorIp.c_str());
+
+    ssw::skillpack::InvalidateSkillConfigPackage();
+    SkillLocalDataInvalidate();
+    ssw::runtime::ReloadFeatureSwitches();
+    g_lastMissingConfigRetryTick = 0;
+
+    LoadSuperSkillRegistry();
+    LoadCustomSkillRoutes();
+    LoadNativeSkillInjectionRegistry();
+
+    if (manager && !g_superSkillsBySkillId.empty())
+    {
+        const int currentTab = manager->currentTab;
+        ConfigureIndependentOverlayManager(manager);
+        if (currentTab >= 0 && currentTab < manager->tabCount)
+            manager->currentTab = currentTab;
+        WriteLogFmt("[SuperSkill] overlay rebuilt: runtime password ready reload");
+    }
+
+    return true;
+}
+
 void SkillOverlayBridgeInitialize(SkillManager* manager)
 {
     g_bridge = BridgeState{};
@@ -8891,6 +9635,8 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
     g_passiveEffectDamageWriteTickBySkillId.clear();
     g_passiveEffectDamageGetterTickBySkillId.clear();
     g_passiveEffectAttackCountGetterTickBySkillId.clear();
+    g_runtimePasswordReadyObservedAddress = 0;
+    g_runtimePasswordReadyObservedRaw = 0;
     g_loggedMissingSuperSkillConfig = false;
     g_loggedDuplicateSuperSkills = false;
     ssw::runtime::ReloadFeatureSwitches();
@@ -8936,6 +9682,8 @@ void SkillOverlayBridgeShutdown()
     g_superSkillResetPreviewReceiveHookReady = 0;
     g_lastObservedLevelContext = 0;
     g_lastObservedSkillDataMgr = 0;
+    g_runtimePasswordReadyObservedAddress = 0;
+    g_runtimePasswordReadyObservedRaw = 0;
     for (int i = 0; i < SKILL_BAR_TOTAL_SLOTS; ++i)
         g_pendingQuickSlotRestores[i] = PendingQuickSlotRestore{};
     g_bridge = BridgeState{};
@@ -8951,6 +9699,27 @@ void SkillOverlayBridgeSetPotentialIncreaseAddress(uintptr_t address)
     g_localIndependentPotentialIncreaseAddress = address;
     SyncMergedLocalPotentialBufferToExternalAddress();
     WriteLogFmt("[IndependentBuffLocal] potential increase address=0x%08X", (DWORD)address);
+}
+
+void SkillOverlayBridgeSetRuntimePasswordAddress(uintptr_t address)
+{
+    if (g_runtimePasswordAddress != address)
+    {
+        g_runtimePasswordReadyObservedAddress = 0;
+        g_runtimePasswordReadyObservedRaw = 0;
+    }
+
+    g_runtimePasswordAddress = address;
+    if (address != 0)
+    {
+        WriteLogFmt("[SkillPack] cached runtime password address=0x%08X",
+            (DWORD)address);
+    }
+}
+
+uintptr_t SkillOverlayBridgeGetRuntimePasswordAddress()
+{
+    return g_runtimePasswordAddress;
 }
 
 void SkillOverlayBridgeSetObservedNativeVisibleBuffVisualCount(int count)
@@ -9223,6 +9992,8 @@ void SkillOverlayBridgeSetResetPreviewReceiveHookReady(bool ready)
 
 void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
 {
+    TryReloadSkillConfigPackageAfterRuntimePasswordReady(GetBridgeManager(), "sync-retro");
+
     state.hasSuperSkillData = !g_superSkillsBySkillId.empty();
     state.superSkillCarrierSkillId = g_defaultSuperSpCarrierSkillId;
     state.superSkillPoints = ResolveAvailableSuperSkillPointsForCarrier(state.superSkillCarrierSkillId);
@@ -9890,10 +10661,29 @@ int SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(int offset)
     return g_localIndependentPotentialDeltaBuffer[index];
 }
 
+int SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(int offset)
+{
+    RefreshIndependentBuffRuntimeOwnerBinding();
+    if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
+        return 0;
+
+    const size_t index = static_cast<size_t>(offset / static_cast<int>(sizeof(int)));
+    if (index >= g_localIndependentPotentialDisplayDeltaBuffer.size())
+        return 0;
+
+    return g_localIndependentPotentialDisplayDeltaBuffer[index];
+}
+
 bool SkillOverlayBridgeHasLocalIndependentPotentialBonuses()
 {
     RefreshIndependentBuffRuntimeOwnerBinding();
-    return !g_activeLocalIndependentPotentialBySkillId.empty();
+    return HasAnyLocalIndependentPotentialActualState();
+}
+
+bool SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses()
+{
+    RefreshIndependentBuffRuntimeOwnerBinding();
+    return !g_activeLocalIndependentPotentialDisplayBySkillId.empty();
 }
 
 bool SkillOverlayBridgeHasIndependentBuffOverlayEntries()
@@ -9952,9 +10742,52 @@ namespace
         if (skillId <= 0)
             return false;
 
-        WriteLogFmt("[IndependentBuffOverlay] cancel send deferred skillId=%d (direct raw send disabled to avoid crash)",
-            skillId);
-        return false;
+        DWORD userLocal = 0;
+        if (!SafeReadValue(ADDR_UserLocal, userLocal) ||
+            !userLocal ||
+            SafeIsBadReadPtr(reinterpret_cast<void*>(userLocal), 4))
+        {
+            WriteLogFmt("[IndependentBuffOverlay] cancel send skip skillId=%d reason=no-userlocal userLocal=0x%08X",
+                skillId,
+                userLocal);
+            return false;
+        }
+
+        DWORD result = 0;
+        bool sent = false;
+        __try
+        {
+            DWORD fnCancelBuff = ADDR_B26760;
+            DWORD savedEsp = 0;
+            __asm
+            {
+                mov savedEsp, esp
+                push 0
+                push skillId
+                mov ecx, userLocal
+                mov edx, fnCancelBuff
+                call edx
+                mov result, eax
+                mov esp, savedEsp
+            }
+            sent = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            WriteLogFmt("[IndependentBuffOverlay] cancel send EXCEPTION skillId=%d userLocal=0x%08X code=0x%08X",
+                skillId,
+                userLocal,
+                GetExceptionCode());
+            return false;
+        }
+
+        WriteLogFmt("[IndependentBuffOverlay] cancel send native skillId=%d opcode=0x%X sent=%d userLocal=0x%08X eax=0x%08X",
+            skillId,
+            (unsigned int)kClientCancelBuffPacketOpcode,
+            sent ? 1 : 0,
+            userLocal,
+            result);
+        return sent;
     }
 }
 
@@ -12195,6 +13028,16 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
         int durationMs = 0;
         TryReadSingleStatGiveBuffDurationMs(payload, payloadLen, durationMs);
 
+        int resolvedPacketSkillId = packetSkillId;
+        if (TryResolvePreferredIndependentBuffObservedSkillId(packetSkillId, resolvedPacketSkillId) &&
+            resolvedPacketSkillId != packetSkillId)
+        {
+            WriteLogFmt("[IndependentBuffClient] give alias-resolve observed=%d resolved=%d caller=0x%08X",
+                packetSkillId,
+                resolvedPacketSkillId,
+                (DWORD)(uintptr_t)callerRetAddr);
+        }
+
         for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
              it != g_superSkillsBySkillId.end();
              ++it)
@@ -12234,7 +13077,7 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
             ActiveIndependentBuffRewriteState state;
             if (!BuildIndependentBuffRewriteState(definition, state))
                 continue;
-            if (packetSkillId != definition.skillId)
+            if (resolvedPacketSkillId != definition.skillId)
                 continue;
             if (!PacketMaskHasValue(payload, payloadLen, state.carrierMaskPosition, state.carrierMaskValue))
                 continue;

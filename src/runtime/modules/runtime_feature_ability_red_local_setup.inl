@@ -1,3 +1,4 @@
+// AbilityRed / 本地潜能安装模块：负责 local potential、movement setter、output clamp 等安装。
 static bool SetupLocalIndependentPotentialDisplayFunctionHooks()
 {
     bool anyOk = false;
@@ -1174,6 +1175,40 @@ static bool SetupAbilityRedBake198Hooks()
 static bool SetupAbilityRedFinalValueHooks()
 {
     bool anyOk = false;
+
+    if (!oAbilityRedFinalCalc84BE40Fn)
+    {
+        BYTE *pTarget = FollowJmpChain((void *)ADDR_84BE40);
+        if (!pTarget)
+        {
+            WriteLog("[AbilityRedFinal] 84BE40 target missing");
+        }
+        else
+        {
+            int copyLen = CalcMinCopyLen(pTarget);
+            if (copyLen < 5)
+                copyLen = 5;
+
+            oAbilityRedFinalCalc84BE40Fn =
+                (tAbilityRedFinalCalc7Fn)GenericInlineHook5(
+                    pTarget,
+                    (void *)hkAbilityRedFinalCalc84BE40,
+                    copyLen);
+            if (!oAbilityRedFinalCalc84BE40Fn)
+            {
+                WriteLog("[AbilityRedFinal] 84BE40 hook failed");
+            }
+            else
+            {
+                WriteLogFmt("[AbilityRedFinal] OK(84BE40): entry=0x%08X tramp=0x%08X copyLen=%d",
+                    (DWORD)(uintptr_t)pTarget,
+                    (DWORD)(uintptr_t)oAbilityRedFinalCalc84BE40Fn,
+                    copyLen);
+            }
+        }
+    }
+    if (oAbilityRedFinalCalc84BE40Fn)
+        anyOk = true;
 
     if (!oAbilityRedFinalCalc84C470Fn)
     {

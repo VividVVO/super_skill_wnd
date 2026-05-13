@@ -1,3 +1,4 @@
+// 技能释放与展示模块：负责 release classifier、presentation override 和被动效果桥接。
 static int __fastcall hkSkillEffect800260(void *thisPtr, void * /*edxUnused*/, int level)
 {
     int result = 0;

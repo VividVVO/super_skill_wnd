@@ -844,6 +844,15 @@ internal sealed class SkillImageLoader : IDisposable
             value = FormatScalarNumber(doubleProperty.Value);
             return true;
         }
+        if (property is WzVectorProperty vectorProperty)
+        {
+            // Vector values are serialized as "x,y" so downstream readers can
+            // keep the existing string-based cache format.
+            value = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{vectorProperty.X.Value},{vectorProperty.Y.Value}");
+            return true;
+        }
         if (property is WzStringProperty stringProperty)
         {
             string rawValue = stringProperty.Value ?? "";

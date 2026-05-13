@@ -19,6 +19,9 @@ obj/
 skill/
 .claude/
 docs/
+!docs/
+docs/*
+!docs/20_运行时模块总览_作用_功能映射_关闭指南.md
 
 # C/C++
 *.obj

@@ -34,7 +34,8 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
     int result = oMountedStateGate42DE20
                      ? oMountedStateGate42DE20(thisPtr)
                      : 0;
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!kEnableMountedDoubleJumpRuntimeHooks &&
+        !kEnableMountedDemonJumpRuntimeHooks)
     {
         return result;
     }
@@ -51,7 +52,8 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
         &mountItemId,
         nullptr,
         1200);
-    if (!resolvedDoubleJumpMount)
+    if (!resolvedDoubleJumpMount &&
+        kEnableMountedDemonJumpRuntimeHooks)
     {
         resolvedDoubleJumpMount = TryResolveMountedDemonJumpMountItemIdWithFallback(
             thisPtr,
@@ -73,7 +75,9 @@ static int __fastcall hkMountedStateGate42DE20(void *thisPtr, void * /*edxUnused
     const int mountedDoubleJumpSkillId =
         SkillOverlayBridgeResolveMountedDoubleJumpSkillId(mountItemId);
     const int mountedDemonJumpSkillId =
-        SkillOverlayBridgeResolveMountedDemonJumpSkillId(mountItemId);
+        kEnableMountedDemonJumpRuntimeHooks
+            ? SkillOverlayBridgeResolveMountedDemonJumpSkillId(mountItemId)
+            : 0;
     if (mountedDoubleJumpSkillId <= 0 && mountedDemonJumpSkillId <= 0)
     {
         return result;

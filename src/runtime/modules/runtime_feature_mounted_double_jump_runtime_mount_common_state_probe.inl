@@ -1,9 +1,9 @@
-﻿static void ObserveMountedDemonJumpGateProbe(
+static void ObserveMountedDemonJumpGateProbe(
     int mountItemId,
     const char *reasonTag,
     DWORD callerRet)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks ||
+    if (!kEnableMountedDemonJumpRuntimeHooks ||
         mountItemId <= 0 ||
         ResolveMountedRuntimeSkillIdForKind(
             MountedRuntimeSkillKind_DemonJump,
@@ -83,3 +83,38 @@ static bool TryGetRecentMountedDemonJumpGateProbeMountItemId(
 }
 
 static bool TryGetRecentMountedDemonJumpGateProbePreferredChildSkillId(
+    int mountItemId,
+    int *skillIdOut,
+    DWORD maxAgeMs)
+{
+    if (skillIdOut)
+    {
+        *skillIdOut = 0;
+    }
+
+    int probeMountItemId = 0;
+    if (!TryGetRecentMountedDemonJumpGateProbeMountItemId(
+            &probeMountItemId,
+            maxAgeMs) ||
+        probeMountItemId <= 0 ||
+        (mountItemId > 0 && probeMountItemId != mountItemId))
+    {
+        return false;
+    }
+
+    const int preferredChildSkillId = static_cast<int>(
+        InterlockedCompareExchange(
+            &g_recentMountedDemonJumpGateProbeChildSkillId,
+            0,
+            0));
+    if (!IsMountedDemonJumpRuntimeChildSkillId(preferredChildSkillId))
+    {
+        return false;
+    }
+
+    if (skillIdOut)
+    {
+        *skillIdOut = preferredChildSkillId;
+    }
+    return true;
+}

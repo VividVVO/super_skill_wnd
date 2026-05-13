@@ -1,3 +1,4 @@
+// Overlay 后端模块：负责 D3D8/D3D9 Present/Reset、原生按钮兜底和面板渲染驱动。
 static void UpdateSuperCWnd()
 {
     if (!g_SkillWndThis || !g_SuperExpanded)

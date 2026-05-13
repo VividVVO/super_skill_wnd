@@ -241,6 +241,7 @@ static void ObserveStatusBarBuffSlots(uintptr_t statusBar, const char* reason)
     // the observed order during status-bar refreshes.
 }
 
+// 状态栏 BUFF 槽模块：负责 BUFF 栏刷新、清理和 transient slot 观测。
 static void LogStatusBarHookSeen(const char* reason, uintptr_t thisPtr)
 {
     static DWORD s_lastStatusBarHookSeenLogTick = 0;

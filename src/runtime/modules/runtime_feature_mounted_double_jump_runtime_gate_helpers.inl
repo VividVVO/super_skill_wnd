@@ -45,7 +45,7 @@ static BOOL ResolveMountedRuntimeSkillGateAllow(
     int mappedSkillId,
     int *resolvedMountItemIdOut)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return FALSE;
     }

@@ -346,6 +346,7 @@ const DWORD ADDR_6226CE         = 0x006226CE;  // 能力面板红字候选链：
 const DWORD ADDR_417240         = 0x00417240;  // COutPacket::Encode4 (__thiscall, push value)
 const DWORD ADDR_4D63A0         = 0x004D63A0;  // CWvsContext / network session send (__thiscall, push COutPacket*)
 const DWORD ADDR_750C20         = 0x00750C20;  // COutPacket ctor/init (__thiscall, push opcode)
+const DWORD ADDR_B26760         = 0x00B26760;  // UserLocal cancel buff sender: __thiscall(ECX=UserLocal, push byte flag, push skillId), sends opcode 0x94
 const DWORD ADDR_B4C450         = 0x00B4C450;  // game tick getter
 const DWORD ADDR_NetClient      = 0x00F5A07C;  // active network/session object used by sub_4D63A0
 const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR_GameHeap, push alloc)

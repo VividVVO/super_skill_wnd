@@ -9,7 +9,7 @@ static void ClearMountedRuntimeSkillTransientStateIfMatching(
     const char *reasonTag,
     const char *logTag)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || mountItemId <= 0)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind) || mountItemId <= 0)
     {
         return;
     }
@@ -94,6 +94,11 @@ static void ObserveMountedDemonJumpIntent(
     int mountItemId,
     const char *reasonTag)
 {
+    if (!kEnableMountedDemonJumpRuntimeHooks || mountItemId <= 0)
+    {
+        return;
+    }
+
     ObserveMountedRuntimeSkillIntent(MountedRuntimeSkillKind_DemonJump, mountItemId);
     if (ShouldReleaseMountedDemonJumpTerminalClearForReason(reasonTag))
     {
@@ -121,7 +126,7 @@ static void ObserveMountedRuntimeSkillNativeRelease(
     int mountItemId,
     int skillId)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return;
     }
@@ -159,7 +164,7 @@ static bool HasRecentMountedRuntimeSkillIntent(
     int mountItemId,
     DWORD maxAgeMs)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return false;
     }
@@ -219,7 +224,7 @@ static bool TryResolveRecentMountedRuntimeSkillNativeRelease(
     int *mountItemIdOut,
     DWORD maxAgeMs = 450)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return false;
     }
@@ -274,7 +279,7 @@ static bool TryResolveRecentMountedDemonJumpIntentRuntimeSkill(
     int *configuredSkillIdOut,
     DWORD maxAgeMs = 1200)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || runtimeSkillId <= 0)
+    if (!kEnableMountedDemonJumpRuntimeHooks || runtimeSkillId <= 0)
     {
         return false;
     }
@@ -370,7 +375,7 @@ static bool TryResolveRecentMountedRuntimeSkillNativeReleaseRuntimeSkill(
     int *configuredSkillIdOut,
     DWORD maxAgeMs = 450)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return false;
     }
@@ -502,7 +507,7 @@ static bool TryGetRecentMountedRuntimeSkillIntentItemId(
     int *mountItemIdOut,
     DWORD maxAgeMs = 400)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || !mountItemIdOut)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind) || !mountItemIdOut)
     {
         return false;
     }
@@ -564,7 +569,7 @@ static bool TryGetRecentMountedRuntimeSkillNativeReleaseItemId(
     int *mountItemIdOut,
     DWORD maxAgeMs = 450)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || !mountItemIdOut)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind) || !mountItemIdOut)
     {
         return false;
     }

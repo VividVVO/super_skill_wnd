@@ -528,6 +528,10 @@ static void RememberMountedFlightPhysicsScaleSample(
 }
 static DWORD g_AbilityRedBake19883AF02LastSig = 0;
 static DWORD g_AbilityRedBake19883AF02LastTick = 0;
+static DWORD g_AbilityRedFinal84BE40LastCaller = 0;
+static uintptr_t g_AbilityRedFinal84BE40LastThis = 0;
+static DWORD g_AbilityRedFinal84BE40LastTick = 0;
+static int g_AbilityRedFinal84BE40LastActive = -1;
 static DWORD g_AbilityRedFinal84C470LastCaller = 0;
 static uintptr_t g_AbilityRedFinal84C470LastThis = 0;
 static DWORD g_AbilityRedFinal84C470LastTick = 0;

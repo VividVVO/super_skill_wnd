@@ -82,6 +82,13 @@ static bool CanUseMountedRuntimeSkillRuntimeForKind(
                : SkillOverlayBridgeCanUseMountedDoubleJumpRuntimeSkill(mountItemId, skillId);
 }
 
+static bool IsMountedRuntimeSkillHooksEnabledForKind(MountedRuntimeSkillKind kind)
+{
+    return kind == MountedRuntimeSkillKind_DemonJump
+               ? kEnableMountedDemonJumpRuntimeHooks
+               : kEnableMountedDoubleJumpRuntimeHooks;
+}
+
 static bool HasRecentMountedRuntimeRouteArmForKind(
     MountedRuntimeSkillKind kind,
     int mountItemId,

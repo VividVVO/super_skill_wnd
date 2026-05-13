@@ -1,3 +1,4 @@
+// 骑宠攀爬门禁模块：负责攀爬/绳索动作白名单 hook 装配。
 static bool SetupMountClimbGateFeatureHooks()
 {
     bool anyOk = false;

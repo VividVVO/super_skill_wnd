@@ -102,7 +102,8 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
         WriteLogFmt("[SkillReleaseHook] B2F370 override skillId=%d -> %d", skillId, overrideSkillId);
     }
 
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!kEnableMountedDoubleJumpRuntimeHooks &&
+        !kEnableMountedDemonJumpRuntimeHooks)
     {
         return;
     }

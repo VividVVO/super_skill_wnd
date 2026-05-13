@@ -253,7 +253,7 @@ static bool HasFreshMountedRuntimeSkillNativeReleaseRaw(
     int expectedMountItemId,
     DWORD maxAgeMs = 450)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks ||
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind) ||
         expectedSkillId <= 0 ||
         expectedMountItemId <= 0)
     {

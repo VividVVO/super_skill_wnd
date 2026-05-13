@@ -92,6 +92,10 @@ static int ResolveMountedDemonJumpClassifierLocalSkillId(
     {
         return 0;
     }
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+    {
+        return 0;
+    }
 
     int mountItemId = 0;
     if (!TryResolveMountedDemonJumpMountItemIdWithFallback(
@@ -365,6 +369,10 @@ static int ResolveMountedDemonJumpContextFallbackOverrideSkillId(
     if (currentSkillIdOut)
     {
         *currentSkillIdOut = 0;
+    }
+    if (!kEnableMountedDemonJumpRuntimeHooks)
+    {
+        return 0;
     }
 
     // Mounted demon jump child skills must stay as child inside the native

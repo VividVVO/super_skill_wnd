@@ -1,3 +1,4 @@
+// 原生 hook 安装模块：负责技能门禁、技能等级、glyph、SuperChild/SkillWnd 相关 hook 安装。
 static bool SetupNativeButtonMetricHooks()
 {
     bool ok = false;
@@ -397,6 +398,8 @@ static bool SetupSkillNativeIdGateHooks()
     }
 
     if (SetupMountedDoubleJumpRuntimeFeatureHooks())
+        ok = true;
+    if (SetupMountedDemonJumpRuntimeFeatureHooks())
         ok = true;
 
     // 坐骑攀爬/绳索动作在 0042C300 case 51/52 前会先过 4069E0 白名单。

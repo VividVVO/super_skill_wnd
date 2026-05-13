@@ -3,7 +3,7 @@
     int skillId,
     int *resolvedMountItemIdOut)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return FALSE;
     }
@@ -49,7 +49,7 @@ static BOOL ResolveMountedRuntimeSkillNativeReleaseAllowByMountContext(
     void *mountContext,
     int *resolvedMountItemIdOut)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return FALSE;
     }
@@ -726,8 +726,6 @@ __declspec(naked) static void hkMountedUnknownSkillReleaseBranchB300AC()
         jmp eax
     }
 }
-
-#include "runtime/modules/runtime_feature_skill_native_gate_handlers.inl"
 
 static int __fastcall hkSkillLevelBase(void *thisPtr, void * /*edxUnused*/, DWORD playerObj, int skillId, void *cachePtr)
 {

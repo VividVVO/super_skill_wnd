@@ -1,3 +1,4 @@
+// 骑宠移动运行时模块：负责移动观测、飞行速度 hook 和 movement cap patch 装配。
 static bool SetupMountMovementRuntimeFeatureHooks()
 {
     bool anyOk = false;

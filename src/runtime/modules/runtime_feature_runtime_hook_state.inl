@@ -53,8 +53,10 @@ static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F780Fn = nullptr;
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F870Fn = nullptr;
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82F960Fn = nullptr;
 static tAbilityRedSiblingCalcFn oAbilityRedSiblingCalc82FA50Fn = nullptr;
+typedef int (__fastcall *tAbilityRedFinalCalc7Fn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6, DWORD arg7);
 typedef int (__fastcall *tAbilityRedFinalCalc6Fn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5, DWORD arg6);
 typedef int (__fastcall *tAbilityRedFinalCalc5Fn)(void *thisPtr, void *edxUnused, DWORD arg1, DWORD arg2, DWORD arg3, DWORD arg4, DWORD arg5);
+static tAbilityRedFinalCalc7Fn oAbilityRedFinalCalc84BE40Fn = nullptr;
 static tAbilityRedFinalCalc6Fn oAbilityRedFinalCalc84C470Fn = nullptr;
 static tAbilityRedFinalCalc5Fn oAbilityRedFinalCalc84CA90Fn = nullptr;
 static tAbilityRedFinalCalc5Fn oAbilityRedFinalCalc84CBD0Fn = nullptr;
@@ -427,6 +429,7 @@ static bool SetupMountedDemonJumpActionTraceHooks();
 static bool SetupMountedDemonJumpRequirementBypassHook();
 static bool SetupMountMovementAbilityFeatureHooks();
 static bool SetupMountedDoubleJumpRuntimeFeatureHooks();
+static bool SetupMountedDemonJumpRuntimeFeatureHooks();
 static bool SetupMountClimbGateFeatureHooks();
 static bool SetupMountFlightMappingFeatureHooks();
 static bool SetupMountMovementRuntimeFeatureHooks();
@@ -457,11 +460,21 @@ static bool TryGetMountedSoaringFlightTiming(
     int mountItemId,
     DWORD *ageMsOut,
     DWORD *activeDurationMsOut);
+// 骑宠二段跳总闸门：
+// 关闭后，下面这一整组 mounted double jump / late path / trace / packet
+// 逻辑都会短路，只保留编译期存在，不再安装运行时 hook。
 static bool IsMountedDoubleJumpRuntimeHooksEnabled()
 {
     return ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDoubleJumpRuntimeHooks);
 }
 #define kEnableMountedDoubleJumpRuntimeHooks (IsMountedDoubleJumpRuntimeHooksEnabled())
+// 独立的恶魔跳跃分支开关。它只管 demon 专属链，避免再复用 doubleJump 这个总名。
+static bool IsMountedDemonJumpRuntimeHooksEnabled()
+{
+    return ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRuntimeHooks);
+}
+#define kEnableMountedDemonJumpRuntimeHooks (IsMountedDemonJumpRuntimeHooksEnabled())
+// 这三个开关是二段跳家族的从属门闸，通常与总闸门一起看。
 #define kEnableMountMovementAbilityRedHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementAbilityRedHooks))
 #define kEnableGlobalMovementSetterProtectionHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::GlobalMovementSetterProtectionHooks))
 static const DWORD kMountedDemonJumpIntentMaxAgeMs = 400;
@@ -472,8 +485,8 @@ static const DWORD kMountedDemonJumpTerminalClearSuppressMs = 1500;
 static const DWORD kMountedDemonJumpPacketGuardReleaseAgeMs = 2000;
 static const DWORD kMountedDemonJumpGlidePacketSustainMaxAgeMs = 600;
 static const DWORD kMountedDemonJumpRepeatedGlidePacketSuppressMaxAgeMs = 80;
-// Despite the historical name, this now covers both the mounted data loader
-// cap in 888DF0 and the later shared speed/jump clamp chain.
+// 这组开关分别控制：移动 cap patch、移动观测、飞行物理速度。
+// historical 名称仍保留，但语义已扩展到后续共享链。
 #define kEnableMountMovementCapPatches (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementCapPatches))
 #define kEnableMountMovementObservationHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementObservationHooks))
 #define kEnableMountedFlightPhysicsSpeedHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedFlightPhysicsSpeedHooks))

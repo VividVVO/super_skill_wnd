@@ -3158,7 +3158,7 @@ static bool ShouldSuppressMountedRuntimeSkillUseFailPrompt(
     int *mountItemIdOut,
     int *configuredSkillIdOut)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || !thisPtr)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind) || !thisPtr)
     {
         return false;
     }

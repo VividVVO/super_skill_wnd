@@ -24,7 +24,7 @@
         callerRet == 0x00433FEC ||
         callerRet == 0x00433EAA ||
         (callerRet >= 0x00433E80 && callerRet <= 0x00434010);
-    if (!kEnableMountedDoubleJumpRuntimeHooks ||
+    if (!kEnableMountedDemonJumpRuntimeHooks ||
         !contextPtr ||
         !callerMatchesMountedClearWindow)
     {

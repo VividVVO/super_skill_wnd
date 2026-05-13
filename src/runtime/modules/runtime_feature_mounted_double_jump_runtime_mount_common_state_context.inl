@@ -34,7 +34,7 @@ static void ObserveMountedDemonJumpTerminalClear(
     int mountItemId,
     const char *reasonTag)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks || mountItemId <= 0)
+    if (!kEnableMountedDemonJumpRuntimeHooks || mountItemId <= 0)
     {
         return;
     }
@@ -111,7 +111,7 @@ static bool HasRecentMountedDemonJumpTerminalClear(
     int mountItemId,
     DWORD maxAgeMs)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!kEnableMountedDemonJumpRuntimeHooks)
     {
         return false;
     }
@@ -144,7 +144,7 @@ static void ObserveMountedRuntimeSkillIntent(
     MountedRuntimeSkillKind kind,
     int mountItemId)
 {
-    if (!kEnableMountedDoubleJumpRuntimeHooks)
+    if (!IsMountedRuntimeSkillHooksEnabledForKind(kind))
     {
         return;
     }

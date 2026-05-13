@@ -1,5 +1,15 @@
+// 发包与本地观测安装模块：负责 packet hook、本地属性观测和状态栏 hook 聚合安装。
+static void RefreshRuntimeFeatureHooksAfterFeatureSwitchReload()
+{
+    const bool anyOk = SetupMountMovementAbilityFeatureHooks();
+    WriteLogFmt("[FeatureSwitch] runtime-dependent hook refresh any=%d",
+        anyOk ? 1 : 0);
+}
+
 static bool SetupPacketHook()
 {
+    ssw::runtime::SetFeatureSwitchReloadCallback(RefreshRuntimeFeatureHooksAfterFeatureSwitchReload);
+
     bool sendHookOk = false;
     bool recvHookOk = false;
     SkillOverlayBridgeSetResetPreviewReceiveHookReady(false);
@@ -52,6 +62,13 @@ static bool SetupPacketHook()
             WriteLogFmt("[PacketHook] recv external stub detected entry=0x%08X -> target=0x%08X",
                         (DWORD)(uintptr_t)pRecvEntry,
                         (DWORD)(uintptr_t)pRecvTarget);
+            const uintptr_t runtimePasswordAddress = TryExtractRuntimePasswordAddressFromRecvStub(pRecvStubTarget);
+            if (runtimePasswordAddress)
+            {
+                SkillOverlayBridgeSetRuntimePasswordAddress(runtimePasswordAddress);
+                WriteLogFmt("[PacketHook] recv external stub runtimePassword=0x%08X",
+                            (DWORD)runtimePasswordAddress);
+            }
             const uintptr_t potentialIncreaseAddress = TryExtractPotentialIncreaseAddressFromRecvStub(pRecvStubTarget);
             if (potentialIncreaseAddress)
             {
