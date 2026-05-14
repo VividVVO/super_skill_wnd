@@ -101,6 +101,9 @@ static tPotentialTextFormatFn oPotentialTextFormat = nullptr;
 static void *oSkillReleaseClassifierRoot = nullptr;
 static void *oSkillReleaseClassifier = nullptr;
 static void *oSkillReleaseClassifierB2F370 = nullptr;
+static void *oEchoOfHeroPostReleaseContextGuardB3355C = nullptr;
+static DWORD g_EchoOfHeroPostReleaseContinueB33563 = ADDR_B33563;
+static DWORD g_EchoOfHeroPostReleaseSkipB33587 = ADDR_B33587;
 typedef BOOL(__cdecl *tSkillNativeIdGateFn)(int skillId);
 static tSkillNativeIdGateFn oSkillNativeIdGate7CE790 = nullptr;
 static tSkillNativeIdGateFn oSkillNativeIdGate7D0000 = nullptr;
@@ -418,6 +421,10 @@ static bool SetupStatusBarBuffSlotHooks();
 static bool SetupSurfaceDrawImageObservationHook();
 static bool SetupNativeCursorStateHook();
 static bool SetupSkillEffectPassiveBonusHooks();
+static bool SetupIndependentBuffLocalRuntimeHooks();
+static bool SetupUiObservationRuntimeHooks();
+static bool SetupMovementAbilityFeatureHooks();
+static bool SetupPassiveEffectFeatureHooks();
 static bool SetupMountedUnknownSkillReleaseBranchHook();
 static bool SetupMountedUseFailPromptSuppressHook();
 static bool SetupMountMovementObservationHooks();
@@ -428,6 +435,7 @@ static bool SetupMountedDemonJumpLatePathHooks();
 static bool SetupMountedDemonJumpActionTraceHooks();
 static bool SetupMountedDemonJumpRequirementBypassHook();
 static bool SetupMountMovementAbilityFeatureHooks();
+static bool SetupMountedRuntimeFeatureHooks();
 static bool SetupMountedDoubleJumpRuntimeFeatureHooks();
 static bool SetupMountedDemonJumpRuntimeFeatureHooks();
 static bool SetupMountClimbGateFeatureHooks();
@@ -474,6 +482,13 @@ static bool IsMountedDemonJumpRuntimeHooksEnabled()
     return ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRuntimeHooks);
 }
 #define kEnableMountedDemonJumpRuntimeHooks (IsMountedDemonJumpRuntimeHooksEnabled())
+#define kEnableMountedDoubleJumpBaseGateHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDoubleJumpBaseGateHooks))
+#define kEnableMountedDemonJumpCrashTraceHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpCrashTraceHooks))
+#define kEnableMountedDemonJumpPacketObserveHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpPacketObserveHooks))
+#define kEnableMountedDemonJumpLatePathHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpLatePathHooks))
+#define kEnableMountedDemonJumpActionTraceHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpActionTraceHooks))
+#define kEnableMountedDemonJumpRequirementBypassHook (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRequirementBypassHook))
+#define kEnableMountedDemonJumpContextClearHook (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpContextClearHook))
 // 这三个开关是二段跳家族的从属门闸，通常与总闸门一起看。
 #define kEnableMountMovementAbilityRedHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementAbilityRedHooks))
 #define kEnableGlobalMovementSetterProtectionHooks (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::GlobalMovementSetterProtectionHooks))

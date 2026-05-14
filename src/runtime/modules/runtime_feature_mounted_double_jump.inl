@@ -4,9 +4,11 @@
 static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
 {
     bool anyOk = false;
+    const bool enableSharedBase =
+        (kEnableMountedDoubleJumpRuntimeHooks || kEnableMountedDemonJumpRuntimeHooks) &&
+        kEnableMountedDoubleJumpBaseGateHooks;
 
-    if (kEnableMountedDoubleJumpRuntimeHooks ||
-        kEnableMountedDemonJumpRuntimeHooks)
+    if (enableSharedBase)
     {
         oMountedSkillWhitelist7CF270 = (tSkillNativeIdGateFn)InstallInlineHook(
             ADDR_7CF270, (void *)hkMountedSkillWhitelist7CF270);
@@ -52,7 +54,7 @@ static bool SetupMountedDoubleJumpRuntimeFeatureHooks()
         oMountedUseFailPromptAE6260 = nullptr;
         g_MountedSkillContextGateCallsiteOriginalTarget = 0;
         g_MountedUnknownSkillReleaseBranchOriginalTarget = 0;
-        WriteLog("[MountDoubleJump] runtime hooks disabled");
+        WriteLog("[MountDoubleJump] shared base hooks disabled");
     }
 
     return anyOk;
@@ -64,18 +66,24 @@ static bool SetupMountedDemonJumpRuntimeFeatureHooks()
 
     if (kEnableMountedDemonJumpRuntimeHooks)
     {
-        if (SetupMountedDemonJumpCrashTraceHooks())
+        if (kEnableMountedDemonJumpCrashTraceHooks &&
+            SetupMountedDemonJumpCrashTraceHooks())
             anyOk = true;
-        if (SetupMountedDemonJumpPacketObserveHooks())
+        if (kEnableMountedDemonJumpPacketObserveHooks &&
+            SetupMountedDemonJumpPacketObserveHooks())
             anyOk = true;
-        if (SetupMountedDemonJumpLatePathHooks())
+        if (kEnableMountedDemonJumpLatePathHooks &&
+            SetupMountedDemonJumpLatePathHooks())
             anyOk = true;
-        if (SetupMountedDemonJumpActionTraceHooks())
+        if (kEnableMountedDemonJumpActionTraceHooks &&
+            SetupMountedDemonJumpActionTraceHooks())
             anyOk = true;
-        if (SetupMountedDemonJumpRequirementBypassHook())
+        if (kEnableMountedDemonJumpRequirementBypassHook &&
+            SetupMountedDemonJumpRequirementBypassHook())
             anyOk = true;
 
-        if (!oMountedDemonJumpContextClear433380)
+        if (kEnableMountedDemonJumpContextClearHook &&
+            !oMountedDemonJumpContextClear433380)
         {
             oMountedDemonJumpContextClear433380 =
                 (tMountedDemonJumpContextClearFn)InstallInlineHook(
@@ -93,9 +101,28 @@ static bool SetupMountedDemonJumpRuntimeFeatureHooks()
                 WriteLog("[MountDemonJumpContext] hook failed: 433380");
             }
         }
-        else
+        else if (kEnableMountedDemonJumpContextClearHook)
         {
             anyOk = true;
+        }
+        else
+        {
+            oMountedDemonJumpContextClear433380 = nullptr;
+            WriteLog("[MountDemonJumpContext] hook disabled by feature switch");
+        }
+
+        if (!kEnableMountedDemonJumpCrashTraceHooks)
+            WriteLog("[MountDemonJumpTrace] hooks disabled by feature switch");
+        if (!kEnableMountedDemonJumpPacketObserveHooks)
+            WriteLog("[MountDemonJumpPacket] hooks disabled by feature switch");
+        if (!kEnableMountedDemonJumpLatePathHooks)
+            WriteLog("[MountDemonJumpLate] hooks disabled by feature switch");
+        if (!kEnableMountedDemonJumpActionTraceHooks)
+            WriteLog("[MountDemonJumpAction] hooks disabled by feature switch");
+        if (!kEnableMountedDemonJumpRequirementBypassHook)
+        {
+            oMountedDemonJumpRequirementBF65C0 = nullptr;
+            WriteLog("[MountDemonJumpReq] hook disabled by feature switch");
         }
     }
     else
@@ -140,6 +167,7 @@ static bool SetupMountedDemonJumpRuntimeFeatureHooks()
         oMountedDemonJumpActionRouteB24EA0 = nullptr;
         oMountedDemonJumpActionRouteB26550 = nullptr;
         oMountedDemonJumpActionRouteB26050 = nullptr;
+        oMountedDemonJumpRequirementBF65C0 = nullptr;
         WriteLog("[MountDemonJump] runtime hooks disabled");
     }
 

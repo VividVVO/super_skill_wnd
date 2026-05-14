@@ -354,7 +354,9 @@ const DWORD ADDR_4020B0         = 0x004020B0;  // game free (__thiscall ecx=ADDR
 // ============================================================================
 // 技能释放分类链（证据来自 xdbg trace）
 // ============================================================================
-// 00B31349: 技能释放分类根节点（完整 skillId 决策树入口）
+// 00B31349: release classifier split-label block; do not inline hook here.
+//           1005 and other local cases jump directly to 00B3134D, so a 5-byte
+//           patch at 00B31349 corrupts that shared target.
 // 00B3144D: 技能释放高层分类分流块
 // 00B31722: 命中特定技能家族后的专门处理分支
 // 00B2F370: 技能释放大分支函数（原 SkillWnd 双击会以 ECX=*(0x00F59FC0), push 0,0,0,skillId 调用）
@@ -380,6 +382,9 @@ const DWORD ADDR_B26290         = 0x00B26290;  // 原生 Soaring(80001089) 专�
 const DWORD ADDR_B31349         = 0x00B31349;
 const DWORD ADDR_B3144D         = 0x00B3144D;
 const DWORD ADDR_B31722         = 0x00B31722;
+const DWORD ADDR_B3355C         = 0x00B3355C;  // B2F370 common post-release: load context before 7B8420
+const DWORD ADDR_B33563         = 0x00B33563;  // normal continuation after B3355C copied bytes
+const DWORD ADDR_B33587         = 0x00B33587;  // post 7B8420/7CE6F0 continuation
 const DWORD ADDR_ABAF70         = 0x00ABAF70;
 const DWORD ADDR_7CE790         = 0x007CE790;
 const DWORD ADDR_7D0000         = 0x007D0000;

@@ -1476,32 +1476,21 @@ static bool SetupLocalIndependentPotentialDamageDisplayHook()
 // ============================================================================
 // 技能释放分类 hook安装
 // 说明：
-//   00B31349 是完整 skillId 分类树入口，用来做“继承原生模板 skillId”的通用模式。
+//   00B31349 不是安全 hook 入口：多个原生分支会直接跳到 00B3134D，
+//   5-byte inline patch 会覆盖共享跳转目标，Echo(1005) 会落入补丁中间字节。
 //   00B3144D 是释放高层分类块，不是函数入口；首条指令长度 6 字节。
 //   00B2F370 是独立函数分支入口（部分技能路径会直接走这里），需要在入口改 arg0(skillId)。
 //   这里使用 GenericInlineHook5(copyLen=6)，保证整条 cmp 指令被完整搬到 trampoline。
 // ============================================================================
 static bool SetupSkillReleaseClassifierHook()
 {
-    bool rootOk = false;
-    BYTE *pRoot = FollowJmpChain((void *)ADDR_B31349);
-    if (pRoot)
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreSkillReleaseClassifierHooks))
     {
-        oSkillReleaseClassifierRoot = GenericInlineHook5(pRoot, (void *)hkSkillReleaseClassifierRootNaked, 10);
-        if (oSkillReleaseClassifierRoot)
-        {
-            rootOk = true;
-            WriteLogFmt("[SkillReleaseHook] OK(B31349): tramp=0x%08X", (DWORD)(uintptr_t)oSkillReleaseClassifierRoot);
-        }
-        else
-        {
-            WriteLog("[SkillReleaseHook] root hook failed");
-        }
+        WriteLog("[SkillReleaseHook] disabled by feature switch");
+        return true;
     }
-    else
-    {
-        WriteLog("[SkillReleaseHook] classifier root target missing");
-    }
+
+    WriteLog("[SkillReleaseHook] skip(B31349 root): unsafe split-label, B3134D is shared jump target");
 
     bool branchOk = false;
     BYTE *pTarget = FollowJmpChain((void *)ADDR_B3144D);
@@ -1547,7 +1536,31 @@ static bool SetupSkillReleaseClassifierHook()
         }
     }
 
-    if (!rootOk && !branchOk && !b2f370Ok)
+    bool echoPostGuardOk = false;
+    if (!oEchoOfHeroPostReleaseContextGuardB3355C)
+    {
+        oEchoOfHeroPostReleaseContextGuardB3355C = GenericInlineHook5(
+            (BYTE *)ADDR_B3355C,
+            (void *)hkEchoOfHeroPostReleaseContextGuardB3355CNaked,
+            7);
+        if (!oEchoOfHeroPostReleaseContextGuardB3355C)
+        {
+            WriteLog("[SkillReleaseHook] B3355C echo post-release guard hook failed");
+        }
+        else
+        {
+            echoPostGuardOk = true;
+            WriteLogFmt(
+                "[SkillReleaseHook] OK(B3355C echo-post): tramp=0x%08X",
+                (DWORD)(uintptr_t)oEchoOfHeroPostReleaseContextGuardB3355C);
+        }
+    }
+    else
+    {
+        echoPostGuardOk = true;
+    }
+
+    if (!branchOk && !b2f370Ok && !echoPostGuardOk)
     {
         return false;
     }
@@ -1556,6 +1569,12 @@ static bool SetupSkillReleaseClassifierHook()
 
 static bool SetupSkillPresentationHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreSkillPresentationHooks))
+    {
+        WriteLog("[SkillVisualHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillPresentationDispatch = (tSkillPresentationDispatch)InstallInlineHook(
         ADDR_ABAF70, (void *)hkSkillPresentationDispatch);
     if (!oSkillPresentationDispatch)
@@ -1570,6 +1589,18 @@ static bool SetupSkillPresentationHook()
 
 static bool SetupNativeButtonAssetPathHook()
 {
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        WriteLog("[BtnSkinHook] retired: virtual self-render button mode");
+        return true;
+    }
+
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiNativeButtonHooks))
+    {
+        WriteLog("[BtnSkinHook] disabled by feature switch");
+        return true;
+    }
+
     if (!ENABLE_NATIVE_BUTTON_SKIN_REMAP)
     {
         WriteLog("[BtnSkinHook] disabled");
@@ -1590,6 +1621,18 @@ static bool SetupNativeButtonAssetPathHook()
 
 static bool SetupNativeButtonResolveHook()
 {
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        WriteLog("[BtnResolveHook] retired: virtual self-render button mode");
+        return true;
+    }
+
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiNativeButtonHooks))
+    {
+        WriteLog("[BtnResolveHook] disabled by feature switch");
+        return true;
+    }
+
     oButtonResolveCurrentDrawObj = (tButtonResolveCurrentDrawObj)InstallInlineHook(
         ADDR_506EE0, (void *)hkButtonResolveCurrentDrawObj);
     if (!oButtonResolveCurrentDrawObj)
@@ -1604,6 +1647,18 @@ static bool SetupNativeButtonResolveHook()
 
 static bool SetupNativeButtonDrawHook()
 {
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        WriteLog("[BtnDrawHook] retired: virtual self-render button mode");
+        return true;
+    }
+
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiNativeButtonHooks))
+    {
+        WriteLog("[BtnDrawHook] disabled by feature switch");
+        return true;
+    }
+
     oButtonDrawCurrentState = (tButtonDrawCurrentState)InstallInlineHook(
         ADDR_507020, (void *)hkButtonDrawCurrentState);
     if (!oButtonDrawCurrentState)

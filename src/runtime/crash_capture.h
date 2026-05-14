@@ -5,6 +5,7 @@ namespace ssw
 namespace runtime
 {
 
+void BootstrapCrashCaptureRuntime();
 void InitializeCrashCaptureRuntime();
 void ShutdownCrashCaptureRuntime();
 

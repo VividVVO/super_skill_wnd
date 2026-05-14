@@ -9,10 +9,15 @@ struct SuperRuntimeInstallCallbacks
     bool (*setupNativeButtonDrawHook)();
     bool (*setupNativeButtonMetricHooks)();
     bool (*setupPacketHook)();
+    bool (*setupIndependentBuffLocalHooks)();
+    bool (*setupUiObservationHooks)();
+    bool (*setupMovementAbilityFeatureHooks)();
     bool (*setupSkillReleaseClassifierHook)();
     bool (*setupSkillPresentationHook)();
     bool (*setupSkillNativeIdGateHooks)();
+    bool (*setupMountedRuntimeFeatureHooks)();
     bool (*setupSkillLevelLookupHooks)();
+    bool (*setupPassiveEffectHooks)();
     bool (*setupSuperChildDrawHook)();
     bool (*setupSkillWndMoveHook)();
     bool (*setupSkillWndRefreshHook)();
@@ -42,4 +47,3 @@ bool SuperRuntimeRunInstallPipeline(
     const SuperRuntimeInstallOptions& options,
     const SuperRuntimeInstallCallbacks& callbacks,
     SuperRuntimeInstallResult* outResult);
-

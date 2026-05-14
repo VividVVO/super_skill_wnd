@@ -31,6 +31,28 @@ namespace
 
     const FeatureSwitchDefinition kFeatureSwitchDefinitions[] =
     {
+        {FeatureSwitchId::SkillRuntimeEnabled, "skill.runtime.enabled", true},
+        {FeatureSwitchId::CorePacketHooks, "runtime.core.packetHooks", true},
+        {FeatureSwitchId::CoreLocalPotentialReadHooks, "runtime.core.localPotentialReadHooks", true},
+        {FeatureSwitchId::CoreLocalPotentialDisplayHooks, "runtime.core.localPotentialDisplayHooks", true},
+        {FeatureSwitchId::CoreAbilityRedObservationHooks, "runtime.core.abilityRedObservationHooks", true},
+        {FeatureSwitchId::CoreStatusBarBuffSlotHooks, "runtime.core.statusBarBuffSlotHooks", true},
+        {FeatureSwitchId::CoreSurfaceDrawObservationHook, "runtime.core.surfaceDrawObservationHook", true},
+        {FeatureSwitchId::CoreNativeCursorStateHook, "runtime.core.nativeCursorStateHook", true},
+        {FeatureSwitchId::CoreSkillReleaseClassifierHooks, "runtime.core.skillReleaseClassifierHooks", true},
+        {FeatureSwitchId::CoreSkillPresentationHooks, "runtime.core.skillPresentationHooks", true},
+        {FeatureSwitchId::CoreSkillNativeGateHooks, "runtime.core.skillNativeGateHooks", true},
+        {FeatureSwitchId::CoreSkillLevelHooks, "runtime.core.skillLevelHooks", true},
+        {FeatureSwitchId::CorePassiveEffectHooks, "runtime.core.passiveEffectHooks", true},
+        {FeatureSwitchId::UiOverlayHooks, "runtime.ui.overlayHooks", true},
+        {FeatureSwitchId::UiNativeButtonHooks, "runtime.ui.nativeButtonHooks", false},
+        {FeatureSwitchId::UiRouteBChildHooks, "runtime.ui.routeBChildHooks", false},
+        {FeatureSwitchId::UiSkillWindowCoreHooks, "runtime.ui.skillWindowCoreHooks", true},
+        {FeatureSwitchId::UiSkillWindowMoveHooks, "runtime.ui.skillWindowMoveHooks", false},
+        {FeatureSwitchId::UiSkillWindowRefreshHooks, "runtime.ui.skillWindowRefreshHooks", false},
+        {FeatureSwitchId::UiMsgHook, "runtime.ui.msgHook", true},
+        {FeatureSwitchId::UiWndProcHook, "runtime.ui.wndProcHook", true},
+        {FeatureSwitchId::UiInputSpoof, "runtime.ui.inputSpoof", true},
         {FeatureSwitchId::SkillReleaseNativeRouteArm, "skill.release.nativeRouteArm", false},
         {FeatureSwitchId::MountedRuntimeRouteArm, "mount.runtime.routeArm", false},
         {FeatureSwitchId::MountedMovementOverride, "mount.movement.override", false},
@@ -45,6 +67,13 @@ namespace
         {FeatureSwitchId::PacketProxyRouteRewrite, "packet.proxyRoute.rewrite", false},
         {FeatureSwitchId::MountedDoubleJumpRuntimeHooks, "runtime.mount.doubleJumpHooks", false},
         {FeatureSwitchId::MountedDemonJumpRuntimeHooks, "runtime.mount.demonJumpHooks", false},
+        {FeatureSwitchId::MountedDoubleJumpBaseGateHooks, "runtime.mount.doubleJumpBaseGateHooks", true},
+        {FeatureSwitchId::MountedDemonJumpCrashTraceHooks, "runtime.mount.demonJumpCrashTraceHooks", true},
+        {FeatureSwitchId::MountedDemonJumpPacketObserveHooks, "runtime.mount.demonJumpPacketObserveHooks", true},
+        {FeatureSwitchId::MountedDemonJumpLatePathHooks, "runtime.mount.demonJumpLatePathHooks", true},
+        {FeatureSwitchId::MountedDemonJumpActionTraceHooks, "runtime.mount.demonJumpActionTraceHooks", true},
+        {FeatureSwitchId::MountedDemonJumpRequirementBypassHook, "runtime.mount.demonJumpRequirementBypassHook", true},
+        {FeatureSwitchId::MountedDemonJumpContextClearHook, "runtime.mount.demonJumpContextClearHook", true},
         {FeatureSwitchId::MountClimbGateHooks, "runtime.mount.climbGateHooks", false},
         {FeatureSwitchId::MountFlightMappingHooks, "runtime.mount.flightMappingHooks", false},
         {FeatureSwitchId::MountMovementAbilityRedHooks, "runtime.mount.movementAbilityRedHooks", false},
@@ -53,6 +82,17 @@ namespace
         {FeatureSwitchId::MountMovementObservationHooks, "runtime.mount.movementObservationHooks", false},
         {FeatureSwitchId::MountedFlightPhysicsSpeedHooks, "runtime.mount.flightPhysicsSpeedHooks", false},
         {FeatureSwitchId::MountMovementCapPatches, "runtime.mount.movementCapPatches", false},
+        {FeatureSwitchId::FeatureSuperSkillEnabled, "feature.superSkill.enabled", true},
+        {FeatureSwitchId::FeatureSuperSkillReleaseEnabled, "feature.superSkill.release.enabled", true},
+        {FeatureSwitchId::FeatureSuperSkillUiEnabled, "feature.superSkill.ui.enabled", true},
+        {FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled, "feature.superSkill.independentBuff.enabled", true},
+        {FeatureSwitchId::FeatureSuperSkillPassiveEffectEnabled, "feature.superSkill.passiveEffect.enabled", true},
+        {FeatureSwitchId::FeaturePlayerMovementEnabled, "feature.playerMovement.enabled", true},
+        {FeatureSwitchId::FeatureMountDoubleJumpEnabled, "feature.mount.doubleJump.enabled", true},
+        {FeatureSwitchId::FeatureMountDemonJumpEnabled, "feature.mount.demonJump.enabled", true},
+        {FeatureSwitchId::FeatureMountClimbEnabled, "feature.mount.climb.enabled", true},
+        {FeatureSwitchId::FeatureMountFlightEnabled, "feature.mount.flight.enabled", true},
+        {FeatureSwitchId::FeatureMountMovementEnabled, "feature.mount.movement.enabled", true},
         {FeatureSwitchId::DiagnosticCrashCapture, "runtime.diagnostics.crashCapture", true},
     };
 
@@ -75,6 +115,182 @@ namespace
         if (index >= sizeof(kFeatureSwitchDefinitions) / sizeof(kFeatureSwitchDefinitions[0]))
             return nullptr;
         return &kFeatureSwitchDefinitions[index];
+    }
+
+    bool GetRawFeatureSwitchValue(FeatureSwitchId id)
+    {
+        const size_t index = ToIndex(id);
+        if (index >= g_featureSwitchStates.size())
+            return false;
+        return g_featureSwitchStates[index].value;
+    }
+
+    bool HasExplicitFeatureSwitchDisable(FeatureSwitchId id)
+    {
+        const size_t index = ToIndex(id);
+        if (index >= g_featureSwitchStates.size())
+            return false;
+
+        const FeatureSwitchState& state = g_featureSwitchStates[index];
+        return state.hasOverride && !state.value;
+    }
+
+    bool IsFeatureSwitchLocallyAllowed(FeatureSwitchId id)
+    {
+        const size_t index = ToIndex(id);
+        if (index >= g_featureSwitchStates.size())
+            return false;
+
+        const FeatureSwitchState& state = g_featureSwitchStates[index];
+        return !state.hasOverride || state.value;
+    }
+
+    void ForceFeatureSwitchDisabled(FeatureSwitchId id)
+    {
+        const size_t index = ToIndex(id);
+        if (index >= g_featureSwitchStates.size())
+            return;
+
+        FeatureSwitchState& state = g_featureSwitchStates[index];
+        state.value = false;
+        state.hasOverride = true;
+    }
+
+    void ApplyPendingPackageSafetyOverrides()
+    {
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpRuntimeHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpCrashTraceHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpPacketObserveHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpLatePathHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpActionTraceHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpRequirementBypassHook);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpContextClearHook);
+    }
+
+    bool IsFeatureEnabledResolved(FeatureSwitchId id)
+    {
+        if (HasExplicitFeatureSwitchDisable(id))
+            return false;
+
+        const bool rawValue = GetRawFeatureSwitchValue(id);
+        const bool locallyAllowed = IsFeatureSwitchLocallyAllowed(id);
+
+        switch (id)
+        {
+        case FeatureSwitchId::FeatureSuperSkillReleaseEnabled:
+        case FeatureSwitchId::FeatureSuperSkillUiEnabled:
+        case FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled:
+        case FeatureSwitchId::FeatureSuperSkillPassiveEffectEnabled:
+            return rawValue &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillEnabled);
+
+        case FeatureSwitchId::FeaturePlayerMovementEnabled:
+        case FeatureSwitchId::FeatureMountDoubleJumpEnabled:
+        case FeatureSwitchId::FeatureMountDemonJumpEnabled:
+        case FeatureSwitchId::FeatureMountClimbEnabled:
+        case FeatureSwitchId::FeatureMountFlightEnabled:
+        case FeatureSwitchId::FeatureMountMovementEnabled:
+            return rawValue;
+
+        case FeatureSwitchId::SkillRuntimeEnabled:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillReleaseEnabled);
+
+        case FeatureSwitchId::CorePacketHooks:
+        case FeatureSwitchId::PacketRewritePipeline:
+            return locallyAllowed &&
+                   (IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillReleaseEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillPassiveEffectEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDoubleJumpEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDemonJumpEnabled));
+
+        case FeatureSwitchId::CoreLocalPotentialReadHooks:
+        case FeatureSwitchId::CoreLocalPotentialDisplayHooks:
+        case FeatureSwitchId::CoreAbilityRedObservationHooks:
+        case FeatureSwitchId::CoreStatusBarBuffSlotHooks:
+        case FeatureSwitchId::PacketIndependentBuffCancelRewrite:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled);
+
+        case FeatureSwitchId::CoreSurfaceDrawObservationHook:
+        case FeatureSwitchId::CoreNativeCursorStateHook:
+        case FeatureSwitchId::UiOverlayHooks:
+        case FeatureSwitchId::UiNativeButtonHooks:
+        case FeatureSwitchId::UiRouteBChildHooks:
+        case FeatureSwitchId::UiSkillWindowCoreHooks:
+        case FeatureSwitchId::UiSkillWindowMoveHooks:
+        case FeatureSwitchId::UiSkillWindowRefreshHooks:
+        case FeatureSwitchId::UiMsgHook:
+        case FeatureSwitchId::UiWndProcHook:
+        case FeatureSwitchId::UiInputSpoof:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillUiEnabled);
+
+        case FeatureSwitchId::CoreSkillReleaseClassifierHooks:
+        case FeatureSwitchId::CoreSkillPresentationHooks:
+        case FeatureSwitchId::CoreSkillNativeGateHooks:
+        case FeatureSwitchId::CoreSkillLevelHooks:
+        case FeatureSwitchId::SkillReleaseNativeRouteArm:
+        case FeatureSwitchId::PacketSuperSkillUpgradeRewrite:
+        case FeatureSwitchId::PacketActiveNativeReleaseRewrite:
+        case FeatureSwitchId::PacketProxyRouteRewrite:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillReleaseEnabled);
+
+        case FeatureSwitchId::CorePassiveEffectHooks:
+        case FeatureSwitchId::PacketPassiveAttackExpansion:
+        case FeatureSwitchId::PacketPassiveDamageRewrite:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillPassiveEffectEnabled);
+
+        case FeatureSwitchId::MountedRuntimeRouteArm:
+        case FeatureSwitchId::PacketMountedRuntimeSpecialMoveRewrite:
+        case FeatureSwitchId::MountedDoubleJumpBaseGateHooks:
+            return locallyAllowed &&
+                   (IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDoubleJumpEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDemonJumpEnabled));
+
+        case FeatureSwitchId::MountedDoubleJumpRuntimeHooks:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDoubleJumpEnabled);
+
+        case FeatureSwitchId::MountedDemonJumpRuntimeHooks:
+        case FeatureSwitchId::MountedDemonJumpCrashTraceHooks:
+        case FeatureSwitchId::MountedDemonJumpPacketObserveHooks:
+        case FeatureSwitchId::MountedDemonJumpLatePathHooks:
+        case FeatureSwitchId::MountedDemonJumpActionTraceHooks:
+        case FeatureSwitchId::MountedDemonJumpRequirementBypassHook:
+        case FeatureSwitchId::MountedDemonJumpContextClearHook:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDemonJumpEnabled);
+
+        case FeatureSwitchId::MountClimbGateHooks:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountClimbEnabled);
+
+        case FeatureSwitchId::MountFlightMappingHooks:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountFlightEnabled);
+
+        case FeatureSwitchId::MountedMovementOverride:
+        case FeatureSwitchId::MountedSoaringOverride:
+        case FeatureSwitchId::MountMovementAbilityRedHooks:
+        case FeatureSwitchId::MountMovementObservationHooks:
+        case FeatureSwitchId::MountedFlightPhysicsSpeedHooks:
+        case FeatureSwitchId::MountMovementCapPatches:
+            return locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled);
+
+        case FeatureSwitchId::GlobalMovementSetterProtectionHooks:
+        case FeatureSwitchId::GlobalMovementOutputClampHook:
+            return locallyAllowed &&
+                   (IsFeatureEnabledResolved(FeatureSwitchId::FeaturePlayerMovementEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled));
+
+        default:
+            return rawValue;
+        }
     }
 
     bool ReadUtf8TextFile(const std::wstring& path, std::string& outText)
@@ -211,10 +427,11 @@ namespace
                     packagePasswordPending ? 1 : 0);
                 if (packagePasswordPending)
                 {
+                    ApplyPendingPackageSafetyOverrides();
                     if (!g_loggedFeatureSwitchPackagePending)
                     {
                         WriteLogFmt(
-                            "[FeatureSwitch] package config pending runtime password, using transient disabled defaults path=%s",
+                            "[FeatureSwitch] package config pending runtime password, disabled demon runtime hooks path=%s",
                             ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
                         g_loggedFeatureSwitchPackagePending = true;
                     }
@@ -285,10 +502,7 @@ const char* GetFeatureSwitchKey(FeatureSwitchId id)
 bool IsFeatureEnabled(FeatureSwitchId id)
 {
     EnsureFeatureSwitchesLoaded();
-    const size_t index = ToIndex(id);
-    if (index >= g_featureSwitchStates.size())
-        return false;
-    return g_featureSwitchStates[index].value;
+    return IsFeatureEnabledResolved(id);
 }
 
 void ReloadFeatureSwitches()

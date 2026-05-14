@@ -1331,8 +1331,12 @@ static void __cdecl hkSkillWndPostInit(uintptr_t skillWndThis)
     OnSkillWndPointerObserved(skillWndThis, "hook_postinit");
     WriteLogFmt("[Hook] SkillWndEx captured: 0x%08X", (DWORD)g_SkillWndThis);
 
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        EnsureVirtualSuperButtonArmed("hook_postinit");
+    }
     // 创建原生按钮
-    if (!g_NativeBtnCreated)
+    else if (!g_NativeBtnCreated)
     {
         WriteLog("[Hook] Creating native button...");
         if (CreateSuperButton(g_SkillWndThis))
@@ -1755,6 +1759,12 @@ __declspec(naked) static void hkSkillListBuildFilterNaked()
 
 static bool SetupSkillListBuildFilterHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowCoreHooks))
+    {
+        WriteLog("[SkillListFilter] disabled by feature switch");
+        return true;
+    }
+
     // Hook at 0x007DD67D, need to copy 7 bytes:
     //   007DD67D: 8B 44 24 20   mov eax, [esp+20h]    (4 bytes)
     //   007DD681: 8B 73 08      mov esi, [ebx+8]       (3 bytes)

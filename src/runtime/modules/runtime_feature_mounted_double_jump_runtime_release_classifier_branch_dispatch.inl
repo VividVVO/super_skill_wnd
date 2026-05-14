@@ -1,6 +1,17 @@
 static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 {
     int overrideSkillId = 0;
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        g_ClassifierOverrideSkillId = 0;
+        static LONG s_echoB2F370PassthroughLogBudget = 24;
+        if (InterlockedDecrement(&s_echoB2F370PassthroughLogBudget) >= 0)
+        {
+            WriteLogFmt("[SkillReleaseHook] B2F370 echo native-only skillId=%d", skillId);
+        }
+        return;
+    }
+
     int classifierMountItemId = 0;
     int rootSkillId = 0;
     int currentSkillId = 0;

@@ -1202,6 +1202,72 @@ static bool GetPreferredButtonRect(int* outX, int* outY, int* outW, int* outH, c
     return false;
 }
 
+static bool ResolveOverlayButtonAndPanelAnchor(
+    int* outBtnX,
+    int* outBtnY,
+    int* outBtnW,
+    int* outBtnH,
+    int* outPanelX,
+    int* outPanelY,
+    const char** outSrc)
+{
+    if (outSrc) *outSrc = "none";
+
+    int btnW = 0;
+    int btnH = 0;
+    GetButtonSizeEstimate(&btnW, &btnH);
+
+    int comX = 0;
+    int comY = 0;
+    int vtX = 0;
+    int vtY = 0;
+    const bool hasCom = g_SkillWndThis && GetSkillWndComPos(g_SkillWndThis, &comX, &comY);
+    const bool hasVt = g_SkillWndThis && GetSkillWndAnchorPos(g_SkillWndThis, &vtX, &vtY);
+
+    auto commitFromSkillAnchor = [&](int sx, int sy, const char* srcTag) -> bool
+    {
+        if (outBtnX) *outBtnX = sx + SUPERBTN_OVERLAY_X_OFFSET;
+        if (outBtnY) *outBtnY = sy + SUPERBTN_OVERLAY_Y_OFFSET;
+        if (outBtnW) *outBtnW = btnW;
+        if (outBtnH) *outBtnH = btnH;
+        if (outPanelX) *outPanelX = sx - PANEL_W - PANEL_LEFT_GAP;
+        if (outPanelY) *outPanelY = sy;
+        if (outSrc) *outSrc = srcTag;
+        return true;
+    };
+
+    if (hasVt)
+        return commitFromSkillAnchor(vtX, vtY, "skill_vtable_overlay");
+
+    int bx = 0;
+    int by = 0;
+    int bw = 0;
+    int bh = 0;
+    if (GetSuperButtonScreenRect(&bx, &by, &bw, &bh))
+    {
+        if (outBtnX) *outBtnX = bx;
+        if (outBtnY) *outBtnY = by;
+        if (outBtnW) *outBtnW = bw;
+        if (outBtnH) *outBtnH = bh;
+        if (outPanelX) *outPanelX = bx - PANEL_W - PANEL_LEFT_GAP;
+        if (outPanelY) *outPanelY = by - 8;
+        if (outSrc) *outSrc = "button_fallback_overlay";
+        return true;
+    }
+
+    if (g_SkillWndThis)
+    {
+        RECT skillWndRect = {};
+        if (GetCWndScreenRectByObj(g_SkillWndThis, &skillWndRect))
+            return commitFromSkillAnchor(skillWndRect.left, skillWndRect.top, "skill_rect_overlay_fallback");
+    }
+
+    if (hasCom && comX >= 0 && comY >= 0)
+        return commitFromSkillAnchor(comX, comY, "skill_com_overlay_fallback");
+
+    return false;
+}
+
 static void LogSuperButtonGeometry(const char* tag)
 {
     if (!g_SuperBtnObj) {
@@ -1322,32 +1388,23 @@ static bool ComputeSuperPanelPos(int* outX, int* outY, const char** outSrc)
     bool hasVt  = g_SkillWndThis && GetSkillWndAnchorPos(g_SkillWndThis, &vtX, &vtY);
 
     if (UseImguiOverlayPanelRuntime()) {
-        if (hasVt) {
-            if (hasCom && s_decisionLogCount < 80) {
+        int btnX = 0;
+        int btnY = 0;
+        int btnW = 0;
+        int btnH = 0;
+        const char* overlaySrc = "none";
+        if (ResolveOverlayButtonAndPanelAnchor(
+                &btnX, &btnY, &btnW, &btnH,
+                outX, outY,
+                &overlaySrc)) {
+            if (hasVt && hasCom && s_decisionLogCount < 6) {
                 int dx = vtX - comX; if (dx < 0) dx = -dx;
                 int dy = vtY - comY; if (dy < 0) dy = -dy;
                 WriteLogFmt("[AnchorDecision] overlay use=VT dx=%d dy=%d com=(%d,%d) vt=(%d,%d)",
                     dx, dy, comX, comY, vtX, vtY);
                 s_decisionLogCount++;
             }
-            *outX = vtX - PANEL_W - PANEL_LEFT_GAP;
-            *outY = vtY;
-            if (outSrc) *outSrc = "skill_vtable_overlay";
-            return true;
-        }
-
-        int bx = 0, by = 0, bw = 0, bh = 0;
-        if (GetPreferredButtonRect(&bx, &by, &bw, &bh)) {
-            *outX = bx - PANEL_W - PANEL_LEFT_GAP;
-            *outY = by - 8;
-            if (outSrc) *outSrc = "button_fallback_overlay";
-            return true;
-        }
-
-        if (hasCom && comX >= 0 && comY >= 0) {
-            *outX = comX - PANEL_W - PANEL_LEFT_GAP;
-            *outY = comY;
-            if (outSrc) *outSrc = "skill_com_overlay_fallback";
+            if (outSrc) *outSrc = overlaySrc;
             return true;
         }
     }
@@ -1357,7 +1414,7 @@ static bool ComputeSuperPanelPos(int* outX, int* outY, const char** outSrc)
         *outX = comX - PANEL_W - PANEL_LEFT_GAP;
         *outY = comY;
         if (outSrc) *outSrc = hasVt ? "skill_com_pref" : "skill_com_only";
-        if (hasVt && s_decisionLogCount < 80) {
+        if (hasVt && s_decisionLogCount < 6) {
             int dx = vtX - comX; if (dx < 0) dx = -dx;
             int dy = vtY - comY; if (dy < 0) dy = -dy;
             WriteLogFmt("[AnchorDecision] prefer=COM dx=%d dy=%d com=(%d,%d) vt=(%d,%d) vt_delta=%d",

@@ -51,10 +51,15 @@ bool SuperRuntimeRunInstallPipeline(
     RunOptionalStep(callbacks.setupNativeButtonDrawHook, "BtnDrawHook failed (non-fatal)");
     RunOptionalStep(callbacks.setupNativeButtonMetricHooks, "BtnMetricHook failed (non-fatal)");
     RunOptionalStep(callbacks.setupPacketHook, "PacketHook failed (non-fatal)");
+    RunOptionalStep(callbacks.setupIndependentBuffLocalHooks, "IndependentBuffLocal hooks failed (non-fatal)");
+    RunOptionalStep(callbacks.setupUiObservationHooks, "UiObservation hooks failed (non-fatal)");
+    RunOptionalStep(callbacks.setupMovementAbilityFeatureHooks, "MovementAbility hooks failed (non-fatal)");
     RunOptionalStep(callbacks.setupSkillReleaseClassifierHook, "SkillReleaseHook failed (non-fatal)");
     RunOptionalStep(callbacks.setupSkillPresentationHook, "SkillVisualHook failed (non-fatal)");
     RunOptionalStep(callbacks.setupSkillNativeIdGateHooks, "SkillGate hooks failed (non-fatal)");
+    RunOptionalStep(callbacks.setupMountedRuntimeFeatureHooks, "MountedRuntime hooks failed (non-fatal)");
     RunOptionalStep(callbacks.setupSkillLevelLookupHooks, "SkillLevel hooks failed (non-fatal)");
+    RunOptionalStep(callbacks.setupPassiveEffectHooks, "PassiveEffect hooks failed (non-fatal)");
 
     WriteLog("[NativeText] disabled: using self renderer");
 

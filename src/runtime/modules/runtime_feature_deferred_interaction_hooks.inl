@@ -1,5 +1,11 @@
 static bool SetupWndProcHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiWndProcHook))
+    {
+        WriteLog("[WndProc] disabled by feature switch");
+        return true;
+    }
+
     if (g_OriginalWndProc && g_GameHwnd)
         return true;
 
@@ -21,7 +27,9 @@ static void EnsureDeferredInteractionHooks(const char *reason)
 
     const DWORD now = GetTickCount();
 
-    if (!g_OriginalWndProc && (now - s_lastWndProcRetryTick >= 1000))
+    if (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiWndProcHook) &&
+        !g_OriginalWndProc &&
+        (now - s_lastWndProcRetryTick >= 1000))
     {
         s_lastWndProcRetryTick = now;
         if (SetupWndProcHook())
@@ -34,7 +42,8 @@ static void EnsureDeferredInteractionHooks(const char *reason)
         }
     }
 
-    if (!s_inputSpoofAttempted)
+    if (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiInputSpoof) &&
+        !s_inputSpoofAttempted)
     {
         s_inputSpoofAttempted = true;
         if (!Win32InputSpoofInstall())

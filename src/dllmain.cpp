@@ -143,6 +143,8 @@ static const int SUPER_CHILD_VT_DELTA_X = 0;  // v10.1 后实测 finalX ≈ skil
 static const int SUPER_CHILD_VT_DELTA_Y = 2;  // v10.1 后实测 finalY ≈ skillVtY + 2
 static const int BTN_X_OFFSET = -216;   // 用户实测：在当前基础上再向左 2px
 static const int BTN_Y_OFFSET = -44;    // 用户实测：在当前基础上再向上 3px
+static const int SUPERBTN_OVERLAY_X_OFFSET = 10;   // 自绘按钮相对 SkillWnd VT/top-left 的屏幕偏移
+static const int SUPERBTN_OVERLAY_Y_OFFSET = 255;  // 历史原生按钮现场: 屏幕 Y = SkillWndVT + 255
 static const int BTN_COMPARE_DEBUG_DX = 60;
 static const int BTN_METRIC_FALLBACK_X = 10;
 static const int BTN_METRIC_FALLBACK_Y = 255;
@@ -170,9 +172,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin";
+static const char* BUILD_MARKER = "v23.66-2026-05-15-echo-skip-b31349-split-label";
 #else
-static const char* BUILD_MARKER = "v23.63-2026-05-10-runtime-hooks-modular-thin";
+static const char* BUILD_MARKER = "v23.66-2026-05-15-echo-skip-b31349-split-label";
 #endif
 
 static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
@@ -186,6 +188,17 @@ static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
 static bool UseImguiOverlayPanelRuntime()
 {
     return UseImguiOverlayPanelForMode(g_IsD3D8Mode);
+}
+
+static bool InstallConfiguredInputSpoof()
+{
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiInputSpoof))
+    {
+        WriteLog("[InputSpoof] disabled by feature switch");
+        return true;
+    }
+
+    return Win32InputSpoofInstall();
 }
 
 static const wchar_t* SUPER_BTN_RES_PATH = L"UI/UIWindow2.img/Skill/main/BtMacro";
@@ -252,9 +265,21 @@ static bool ResolveNativeImage(const unsigned short* pathWide, void** outImage, 
 static bool IsPointInRectPad(int mx, int my, int x, int y, int w, int h, int pad);
 static bool GetExpectedButtonRectCom(int* outX, int* outY, int* outW, int* outH);
 static bool GetExpectedButtonRectVt(int* outX, int* outY, int* outW, int* outH);
+static bool ResolveOverlayButtonAndPanelAnchor(
+    int* outBtnX,
+    int* outBtnY,
+    int* outBtnW,
+    int* outBtnH,
+    int* outPanelX,
+    int* outPanelY,
+    const char** outSrc);
 static void LogSuperButtonGeometry(const char* tag);
 static void DrawPostB9F6E0NativeTimingTest();
 static void DrawSuperButtonCursorInPresent(IDirect3DDevice9* pDevice);
+static void ResetSuperBtnD3DInteractionState();
+static bool ShouldUseVirtualSuperButtonRuntime();
+static bool IsSuperButtonSelfRenderReady();
+static void EnsureVirtualSuperButtonArmed(const char* reason);
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
 extern "C" void __stdcall SSW_SecondChildCarrierProbe_RunOnce(DWORD skillWndThis32, DWORD flags, int explicitPanelX, int explicitPanelY);
 extern "C" void __stdcall SSW_SecondChildCarrierProbe_ObserveWndProc(UINT msg, WPARAM wParam, LPARAM lParam);
@@ -273,6 +298,36 @@ static void RunSecondChildCarrierProbeHotkey();
 static void PollSecondChildCarrierProbeTick(DWORD reasonCode, bool force);
 static void ReleaseSecondChildCarrierProbeHotkey();
 #endif
+
+static bool ShouldUseVirtualSuperButtonRuntime()
+{
+    return ENABLE_SUPERBTN_D3D_BUTTON_MODE;
+}
+
+static bool IsSuperButtonSelfRenderReady()
+{
+    if (!g_Ready || !g_SkillWndThis)
+        return false;
+
+    if (ShouldUseVirtualSuperButtonRuntime())
+        return true;
+
+    return g_NativeBtnCreated && g_SuperBtnObj != 0;
+}
+
+static void EnsureVirtualSuperButtonArmed(const char* reason)
+{
+    if (!ShouldUseVirtualSuperButtonRuntime())
+        return;
+    if (!g_Ready || !g_SkillWndThis || g_NativeBtnCreated)
+        return;
+
+    g_NativeBtnCreated = true;
+    ResetSuperBtnD3DInteractionState();
+    WriteLogFmt("[SuperBtnVirtual] armed reason=%s skillWnd=0x%08X",
+        reason ? reason : "unknown",
+        (DWORD)g_SkillWndThis);
+}
 
 // Runtime implementation sections (extracted from dllmain for modular readability)
 #include "runtime/dllmain_section_core_ui.inl"
@@ -328,10 +383,15 @@ static DWORD WINAPI InitThread(LPVOID)
     installCallbacks.setupNativeButtonDrawHook = &SetupNativeButtonDrawHook;
     installCallbacks.setupNativeButtonMetricHooks = &SetupNativeButtonMetricHooks;
     installCallbacks.setupPacketHook = &SetupPacketHook;
+    installCallbacks.setupIndependentBuffLocalHooks = &SetupIndependentBuffLocalRuntimeHooks;
+    installCallbacks.setupUiObservationHooks = &SetupUiObservationRuntimeHooks;
+    installCallbacks.setupMovementAbilityFeatureHooks = &SetupMovementAbilityFeatureHooks;
     installCallbacks.setupSkillReleaseClassifierHook = &SetupSkillReleaseClassifierHook;
     installCallbacks.setupSkillPresentationHook = &SetupSkillPresentationHook;
     installCallbacks.setupSkillNativeIdGateHooks = &SetupSkillNativeIdGateHooks;
+    installCallbacks.setupMountedRuntimeFeatureHooks = &SetupMountedRuntimeFeatureHooks;
     installCallbacks.setupSkillLevelLookupHooks = &SetupSkillLevelLookupHooks;
+    installCallbacks.setupPassiveEffectHooks = &SetupPassiveEffectFeatureHooks;
     installCallbacks.setupSuperChildDrawHook = &SetupSuperChildDrawHook;
     installCallbacks.setupSkillWndMoveHook = &SetupSkillWndMoveHook;
     installCallbacks.setupSkillWndRefreshHook = &SetupSkillWndRefreshHook;
@@ -342,7 +402,7 @@ static DWORD WINAPI InitThread(LPVOID)
     installCallbacks.setupSkillWndDtorHook = &SetupSkillWndDtorHook;
     installCallbacks.setupMsgHook = &SetupMsgHook;
     installCallbacks.setupWndProcHook = &SetupWndProcHook;
-    installCallbacks.installInputSpoof = &Win32InputSpoofInstall;
+    installCallbacks.installInputSpoof = &InstallConfiguredInputSpoof;
 
     SuperRuntimeInstallResult installResult = {};
     if (!SuperRuntimeRunInstallPipeline(installOptions, installCallbacks, &installResult))
@@ -392,6 +452,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID)
     if (dwReason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
         g_hModule = hModule;
+        ssw::runtime::BootstrapCrashCaptureRuntime();
 #if SSW_ENABLE_RUNTIME_LOGS
         FILE* f = OpenRuntimeLogFile("w");
         if (f) { fprintf(f, "=== SuperSkillWnd v14.9 (ImGui Overlay Panel) ===\n"); fclose(f); }

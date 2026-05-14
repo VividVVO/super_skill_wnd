@@ -1,6 +1,17 @@
 static void __cdecl hkSkillReleaseClassifierRootDispatch(int skillId)
 {
     DWORD overrideSkillId = 0;
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        g_ClassifierOverrideSkillId = 0;
+        static LONG s_echoRootPassthroughLogBudget = 24;
+        if (InterlockedDecrement(&s_echoRootPassthroughLogBudget) >= 0)
+        {
+            WriteLogFmt("[SkillReleaseHook] B31349 echo native-only skillId=%d", skillId);
+        }
+        return;
+    }
+
     int mountItemId = 0;
     int rootSkillId = 0;
     int currentSkillId = 0;

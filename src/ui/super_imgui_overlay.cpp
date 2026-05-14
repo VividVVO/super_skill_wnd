@@ -2247,6 +2247,18 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
             g_overlay.anchorX,
             g_overlay.anchorY);
     }
+    else if (gateNow - s_lastGateLogTick > 1000)
+    {
+        s_lastGateLogTick = gateNow;
+        WriteLogFmt("[D3D9OverlayRenderGate] init=%d visible=%d ctx=%d hasBtn=%d expanded=%d anchor=(%d,%d)",
+            g_overlay.initialized ? 1 : 0,
+            g_overlay.visible ? 1 : 0,
+            g_overlay.context ? 1 : 0,
+            HasSuperButtonRect() ? 1 : 0,
+            g_overlay.panelExpanded ? 1 : 0,
+            g_overlay.anchorX,
+            g_overlay.anchorY);
+    }
     if (!HasSuperButtonRect() && (g_overlay.anchorX <= -9000 || g_overlay.anchorY <= -9000) && !hasIndependentBuffOverlay)
         return;
 
@@ -2345,11 +2357,19 @@ void SuperImGuiOverlayRender(IDirect3DDevice9* device)
     g_overlay.mouseCapture = gameForeground && io.WantCaptureMouse && IsOverlayWindowInteractive();
     UpdateCursorSuppression(gameForeground && ShouldUseOverlayCursor());
 
-    if (device->BeginScene() >= 0)
+    ImGui::Render();
+    ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    static DWORD s_lastRenderOkLogTick = 0;
+    const DWORD now = GetTickCount();
+    if (now - s_lastRenderOkLogTick > 1000)
     {
-        ImGui::Render();
-        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-        device->EndScene();
+        s_lastRenderOkLogTick = now;
+        WriteLogFmt("[D3D9OverlayRender] ok btn=%d anchor=(%d,%d) drawLists=%d vertices=%d",
+            HasSuperButtonRect() ? 1 : 0,
+            g_overlay.anchorX,
+            g_overlay.anchorY,
+            ImGui::GetDrawData() ? ImGui::GetDrawData()->CmdListsCount : 0,
+            ImGui::GetDrawData() ? ImGui::GetDrawData()->TotalVtxCount : 0);
     }
 }
 

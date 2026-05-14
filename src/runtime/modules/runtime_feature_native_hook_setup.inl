@@ -1,6 +1,18 @@
 // 原生 hook 安装模块：负责技能门禁、技能等级、glyph、SuperChild/SkillWnd 相关 hook 安装。
 static bool SetupNativeButtonMetricHooks()
 {
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        WriteLog("[BtnMetricHook] retired: virtual self-render button mode");
+        return true;
+    }
+
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiNativeButtonHooks))
+    {
+        WriteLog("[BtnMetricHook] disabled by feature switch");
+        return true;
+    }
+
     bool ok = false;
 
     oButtonMetric507DF0 = (tButtonMetricCurrent)InstallInlineHook(
@@ -353,106 +365,165 @@ static bool SetupMountedFlightPhysicsSpeedHooks()
     return ok;
 }
 
+static bool SetupMountedRuntimeFeatureHooks()
+{
+    const bool enableMountedDoubleJumpBaseHooks =
+        (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDoubleJumpRuntimeHooks) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRuntimeHooks)) &&
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDoubleJumpBaseGateHooks);
+    const bool enableMountedDemonJumpSpecificHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRuntimeHooks) &&
+        (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpCrashTraceHooks) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpPacketObserveHooks) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpLatePathHooks) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpActionTraceHooks) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpRequirementBypassHook) ||
+         ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedDemonJumpContextClearHook));
+    const bool enableMountClimbHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountClimbGateHooks);
+    const bool enableMountFlightMappingHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountFlightMappingHooks);
+    const bool enableMountMovementRuntimeHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementObservationHooks) ||
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountedFlightPhysicsSpeedHooks) ||
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementCapPatches);
+
+    if (!enableMountedDoubleJumpBaseHooks &&
+        !enableMountedDemonJumpSpecificHooks &&
+        !enableMountClimbHooks &&
+        !enableMountFlightMappingHooks &&
+        !enableMountMovementRuntimeHooks)
+    {
+        WriteLog("[MountedRuntimeHooks] all mounted runtime hooks disabled");
+        return true;
+    }
+
+    bool anyOk = false;
+    if (SetupMountedDoubleJumpRuntimeFeatureHooks())
+        anyOk = true;
+    if (SetupMountedDemonJumpRuntimeFeatureHooks())
+        anyOk = true;
+    if (SetupMountClimbGateFeatureHooks())
+        anyOk = true;
+    if (SetupMountFlightMappingFeatureHooks())
+        anyOk = true;
+    if (SetupMountMovementRuntimeFeatureHooks())
+        anyOk = true;
+
+    return anyOk;
+}
+
 static bool SetupSkillNativeIdGateHooks()
 {
     bool ok = false;
+    const bool enableCoreSkillNativeGateHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreSkillNativeGateHooks);
 
-    BYTE *pGate7CE790 = FollowJmpChain((void *)ADDR_7CE790);
-    if (pGate7CE790)
+    if (enableCoreSkillNativeGateHooks)
     {
-        oSkillNativeIdGate7CE790 = (tSkillNativeIdGateFn)GenericInlineHook5(
-            pGate7CE790, (void *)hkSkillNativeIdGate7CE790, 9);
+        BYTE *pGate7CE790 = FollowJmpChain((void *)ADDR_7CE790);
+        if (pGate7CE790)
+        {
+            oSkillNativeIdGate7CE790 = (tSkillNativeIdGateFn)GenericInlineHook5(
+                pGate7CE790, (void *)hkSkillNativeIdGate7CE790, 9);
+        }
+        else
+        {
+            oSkillNativeIdGate7CE790 = nullptr;
+        }
+        if (oSkillNativeIdGate7CE790)
+        {
+            ok = true;
+            WriteLogFmt("[SkillGate] OK(7CE790): tramp=0x%08X", (DWORD)(uintptr_t)oSkillNativeIdGate7CE790);
+        }
+        else
+        {
+            WriteLog("[SkillGate] hook failed: 7CE790");
+        }
+
+        BYTE *pGate7D0000 = FollowJmpChain((void *)ADDR_7D0000);
+        if (pGate7D0000)
+        {
+            oSkillNativeIdGate7D0000 = (tSkillNativeIdGateFn)GenericInlineHook5(
+                pGate7D0000, (void *)hkSkillNativeIdGate7D0000, 9);
+        }
+        else
+        {
+            oSkillNativeIdGate7D0000 = nullptr;
+        }
+        if (oSkillNativeIdGate7D0000)
+        {
+            ok = true;
+            WriteLogFmt("[SkillGate] OK(7D0000): tramp=0x%08X", (DWORD)(uintptr_t)oSkillNativeIdGate7D0000);
+        }
+        else
+        {
+            WriteLog("[SkillGate] hook failed: 7D0000");
+        }
     }
     else
     {
         oSkillNativeIdGate7CE790 = nullptr;
-    }
-    if (oSkillNativeIdGate7CE790)
-    {
-        ok = true;
-        WriteLogFmt("[SkillGate] OK(7CE790): tramp=0x%08X", (DWORD)(uintptr_t)oSkillNativeIdGate7CE790);
-    }
-    else
-    {
-        WriteLog("[SkillGate] hook failed: 7CE790");
-    }
-
-    BYTE *pGate7D0000 = FollowJmpChain((void *)ADDR_7D0000);
-    if (pGate7D0000)
-    {
-        oSkillNativeIdGate7D0000 = (tSkillNativeIdGateFn)GenericInlineHook5(
-            pGate7D0000, (void *)hkSkillNativeIdGate7D0000, 9);
-    }
-    else
-    {
         oSkillNativeIdGate7D0000 = nullptr;
+        WriteLog("[SkillGate] disabled by feature switch");
     }
-    if (oSkillNativeIdGate7D0000)
-    {
-        ok = true;
-        WriteLogFmt("[SkillGate] OK(7D0000): tramp=0x%08X", (DWORD)(uintptr_t)oSkillNativeIdGate7D0000);
-    }
-    else
-    {
-        WriteLog("[SkillGate] hook failed: 7D0000");
-    }
-
-    if (SetupMountedDoubleJumpRuntimeFeatureHooks())
-        ok = true;
-    if (SetupMountedDemonJumpRuntimeFeatureHooks())
-        ok = true;
-
-    // 坐骑攀爬/绳索动作在 0042C300 case 51/52 前会先过 4069E0 白名单。
-    // 这里把扩展骑宠补进去，避免只改服务端后出现“能飞但不能爬”的半支持状态。
-    if (SetupMountClimbGateFeatureHooks())
-        ok = true;
-
-    if (SetupMountFlightMappingFeatureHooks())
-        ok = true;
-    if (SetupMountMovementRuntimeFeatureHooks())
-        ok = true;
-
-    return ok;
+    return ok || !enableCoreSkillNativeGateHooks;
 }
 
 static bool SetupSkillLevelLookupHooks()
 {
     bool ok = false;
+    const bool enableCoreSkillLevelHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreSkillLevelHooks);
 
-    oSkillLevelBase = (tSkillLevelBaseFn)InstallInlineHook(
-        ADDR_7DA7D0, (void *)hkSkillLevelBase);
-    if (oSkillLevelBase)
+    if (enableCoreSkillLevelHooks)
     {
-        ok = true;
-        WriteLogFmt("[SkillLevelHook] OK(7DA7D0): tramp=0x%08X", (DWORD)(uintptr_t)oSkillLevelBase);
+        oSkillLevelBase = (tSkillLevelBaseFn)InstallInlineHook(
+            ADDR_7DA7D0, (void *)hkSkillLevelBase);
+        if (oSkillLevelBase)
+        {
+            ok = true;
+            WriteLogFmt("[SkillLevelHook] OK(7DA7D0): tramp=0x%08X", (DWORD)(uintptr_t)oSkillLevelBase);
+        }
+        else
+        {
+            WriteLog("[SkillLevelHook] hook failed: 7DA7D0");
+        }
+
+        oSkillLevelCurrent = (tSkillLevelCurrentFn)InstallInlineHook(
+            ADDR_7DBC50, (void *)hkSkillLevelCurrent);
+        if (oSkillLevelCurrent)
+        {
+            ok = true;
+            WriteLogFmt("[SkillLevelHook] OK(7DBC50): tramp=0x%08X", (DWORD)(uintptr_t)oSkillLevelCurrent);
+        }
+        else
+        {
+            WriteLog("[SkillLevelHook] hook failed: 7DBC50");
+        }
     }
     else
     {
-        WriteLog("[SkillLevelHook] hook failed: 7DA7D0");
+        oSkillLevelBase = nullptr;
+        oSkillLevelCurrent = nullptr;
+        WriteLog("[SkillLevelHook] disabled by feature switch");
     }
+    return ok || !enableCoreSkillLevelHooks;
+}
 
-    oSkillLevelCurrent = (tSkillLevelCurrentFn)InstallInlineHook(
-        ADDR_7DBC50, (void *)hkSkillLevelCurrent);
-    if (oSkillLevelCurrent)
-    {
-        ok = true;
-        WriteLogFmt("[SkillLevelHook] OK(7DBC50): tramp=0x%08X", (DWORD)(uintptr_t)oSkillLevelCurrent);
-    }
-    else
-    {
-        WriteLog("[SkillLevelHook] hook failed: 7DBC50");
-    }
-
-    if (SetupSkillEffectPassiveBonusHooks())
-        ok = true;
-    else
-        WriteLog("[SuperPassiveEffectHook] effect hooks failed (non-fatal)");
-
-    return ok;
+static bool SetupPassiveEffectFeatureHooks()
+{
+    return SetupSkillEffectPassiveBonusHooks();
 }
 
 static bool SetupSkillEffectPassiveBonusHooks()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CorePassiveEffectHooks))
+    {
+        WriteLog("[SuperPassiveEffectHook] disabled by feature switch");
+        return true;
+    }
+
     bool ok = false;
 
     if (!oSkillEffect800260)
@@ -638,6 +709,12 @@ static bool SetupNativeTextGlyphHook()
 // ============================================================================
 static bool SetupSuperChildDrawHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiRouteBChildHooks))
+    {
+        WriteLog("[SuperChildDrawHook] disabled by feature switch");
+        return true;
+    }
+
     WriteLog("[SuperChildDrawHook] VT1-draw route enabled");
     return true;
 }
@@ -647,6 +724,12 @@ static bool SetupSuperChildDrawHook()
 // ============================================================================
 static bool SetupSkillWndMoveHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowMoveHooks))
+    {
+        WriteLog("[MoveHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndMove = (tSkillWndMove)InstallInlineHook(
         ADDR_9D95A0, (void *)hkSkillWndMoveNaked);
     if (!oSkillWndMove)
@@ -663,6 +746,12 @@ static bool SetupSkillWndMoveHook()
 // ============================================================================
 static bool SetupSkillWndRefreshHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowRefreshHooks))
+    {
+        WriteLog("[RefreshHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndRefresh = (tSkillWndRefresh)InstallInlineHook(
         ADDR_9E1770, (void *)hkSkillWndRefreshNaked);
     if (!oSkillWndRefresh)
@@ -679,6 +768,12 @@ static bool SetupSkillWndRefreshHook()
 // ============================================================================
 static bool SetupSkillWndDrawHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowCoreHooks))
+    {
+        WriteLog("[DrawHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndDraw = (tSkillWndDraw)InstallInlineHook(
         ADDR_9DEE30, (void *)hkSkillWndDrawNaked);
     if (!oSkillWndDraw)
@@ -714,6 +809,12 @@ static bool SetupPostB9F6E0TimingTestHook()
 // ============================================================================
 static bool SetupSkillWndDtorHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowCoreHooks))
+    {
+        WriteLog("[DtorHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndDtor = (tSkillWndDtor)InstallInlineHook(
         ADDR_9E14D0, (void *)hkSkillWndDtorNaked);
     if (!oSkillWndDtor)

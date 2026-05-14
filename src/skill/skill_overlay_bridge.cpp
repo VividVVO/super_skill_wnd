@@ -469,6 +469,9 @@ namespace
     bool g_loggedDuplicateSuperSkills = false;
     bool g_loggedMissingNativeInjectionConfig = false;
     bool g_loggedDuplicateNativeInjections = false;
+    bool g_superSkillConfigLoaded = false;
+    bool g_superSkillConfigMissing = false;
+    bool g_superSkillConfigExplicitlyEmpty = false;
     DWORD g_lastMissingConfigRetryTick = 0;
     int g_defaultSuperSpCarrierSkillId = 0;
     int g_lastResolvedPlayerJobId = 0;
@@ -478,6 +481,39 @@ namespace
     bool IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId featureId)
     {
         return ssw::runtime::IsFeatureEnabled(featureId);
+    }
+
+    bool ShouldAttemptSuperSkillRegistryLoad()
+    {
+        return !g_superSkillConfigLoaded;
+    }
+
+    const char* DescribeSuperSkillConfigState()
+    {
+        if (g_superSkillConfigExplicitlyEmpty)
+            return "empty";
+        if (g_superSkillConfigMissing)
+            return "missing";
+        if (g_superSkillConfigLoaded)
+            return "loaded";
+        return "not_loaded";
+    }
+
+    bool ShouldLogEchoOfHeroGuard(LONG& budget)
+    {
+        return InterlockedDecrement(&budget) >= 0;
+    }
+
+    void LogEchoOfHeroGuard(const char* tag, int skillId)
+    {
+        static LONG s_echoOfHeroGuardLogBudget = 64;
+        if (ShouldLogEchoOfHeroGuard(s_echoOfHeroGuardLogBudget))
+            WriteLogFmt("[SkillBridge] echo native-only %s skillId=%d", tag ? tag : "guard", skillId);
+    }
+
+    bool IsSuperSkillRuntimeEnabled()
+    {
+        return IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::SkillRuntimeEnabled);
     }
     const DWORD kMissingConfigRetryIntervalMs = 3000;
     const DWORD kNativeReleaseContextTimeoutMs = 1200;
@@ -625,8 +661,6 @@ namespace
     std::vector<unsigned char> g_nativeInjectedEntriesBlock;
     std::vector<std::vector<unsigned char>> g_nativeInjectedRowBlocks;
     std::vector<std::string> g_nativeInjectedNames;
-    const int kIndependentTab0SkillIds[] = { 1000, 1001, 1002, 1003, 1005, 1006, 1007, 1009, 1010, 1016, 1013 };
-    const int kIndependentTab1SkillIds[] = { 110, 111, 112, 1037, 1001037, 1036, 1039, 1040, 1096, 1069, 73, 74, 1075, 1076 };
     const int kLocalIndependentPotentialBufferBytes = 0x128;
     const int kLocalIndependentPotentialBufferIntCount = kLocalIndependentPotentialBufferBytes / sizeof(int);
     typedef std::array<int, kLocalIndependentPotentialBufferIntCount> LocalPotentialDeltaBuffer;
@@ -634,6 +668,7 @@ namespace
     uintptr_t g_runtimePasswordAddress = 0;
     uintptr_t g_runtimePasswordReadyObservedAddress = 0;
     DWORD g_runtimePasswordReadyObservedRaw = 0;
+    bool g_runtimePasswordReloadPending = false;
     LocalPotentialDeltaBuffer g_localIndependentPotentialBaseBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialDeltaBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialDisplayDeltaBuffer = {};
@@ -3886,6 +3921,9 @@ namespace
         g_lastIndependentBuffOwnerQueryRefreshTick = 0;
         g_defaultSuperSpCarrierSkillId = 0;
         g_lastOverlayConfiguredJobId = -1;
+        g_superSkillConfigLoaded = false;
+        g_superSkillConfigMissing = false;
+        g_superSkillConfigExplicitlyEmpty = false;
     }
 
     bool FindSuperSkillDefinition(int skillId, SuperSkillDefinition& outDefinition)
@@ -3938,6 +3976,9 @@ namespace
         std::string json;
         if (!ReadTextFile(kSuperSkillConfigPath, json))
         {
+            g_superSkillConfigLoaded = false;
+            g_superSkillConfigMissing = true;
+            g_superSkillConfigExplicitlyEmpty = false;
             if (!g_loggedMissingSuperSkillConfig)
             {
                 g_loggedMissingSuperSkillConfig = true;
@@ -3946,6 +3987,9 @@ namespace
             WriteLog("[InitStage] leave LoadSuperSkillRegistry missing-config");
             return;
         }
+        g_superSkillConfigLoaded = true;
+        g_superSkillConfigMissing = false;
+        g_superSkillConfigExplicitlyEmpty = false;
         g_loggedMissingSuperSkillConfig = false;
         WriteLogFmt("[InitStage] LoadSuperSkillRegistry read bytes=%u path=%s",
             (unsigned int)json.size(),
@@ -4216,11 +4260,18 @@ namespace
                     WriteLogFmt("[SuperSkill] WARN: duplicate skillId=%d in %s", definition.skillId, kSuperSkillConfigPath);
                 }
             }
+            if (SkillOverlayBridgeIsEchoOfHeroSkillId(definition.skillId) ||
+                SkillOverlayBridgeIsEchoOfHeroSkillId(definition.behaviorSkillId))
+            {
+                LogEchoOfHeroGuard("super-config-skip", definition.skillId);
+                continue;
+            }
 
             g_superSkillsBySkillId[definition.skillId] = definition;
             g_superSkillIdsByTab[definition.tabIndex].push_back(definition.skillId);
             ++loadedCount;
         }
+        g_superSkillConfigExplicitlyEmpty = (loadedCount == 0);
 
         WriteLogFmt(
             "[SuperSkill] loaded=%d passive=%d active=%d hidden=%d carrier=%d path=%s",
@@ -4230,6 +4281,11 @@ namespace
             hiddenLoadedCount,
             g_defaultSuperSpCarrierSkillId,
             kSuperSkillConfigPath);
+        if (g_superSkillConfigExplicitlyEmpty)
+        {
+            WriteLogFmt("[SuperSkill] config empty; native/default SkillWnd fallback disabled path=%s",
+                kSuperSkillConfigPath);
+        }
 
         RebuildIndependentBuffObservedSkillCandidateMap();
         RebuildOverlayLearnedVisibilitySnapshot();
@@ -4586,6 +4642,12 @@ namespace
             {
                 WriteLogFmt("[SkillRoute] skip custom=%d releaseClass=%s (missing proxySkillId)",
                     route.skillId, ReleaseClassToString(route.releaseClass));
+                continue;
+            }
+            if (SkillOverlayBridgeIsEchoOfHeroSkillId(route.skillId) ||
+                SkillOverlayBridgeIsEchoOfHeroSkillId(route.proxySkillId))
+            {
+                LogEchoOfHeroGuard("route-config-skip", route.skillId);
                 continue;
             }
 
@@ -5005,7 +5067,7 @@ namespace
 
     void ClearTrackedNonNativeSuperSkillLevel(int skillId, const char* reason)
     {
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         SuperSkillDefinition definition = {};
@@ -5109,7 +5171,7 @@ namespace
 
     void ClearPersistentSuperSkillLevels(const char* reason)
     {
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         if (!g_persistentNonNativeSuperSkillLevelsBySkillId.empty())
@@ -5157,7 +5219,7 @@ namespace
         if (skillId <= 0)
             return;
 
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         SuperSkillDefinition definition = {};
@@ -9154,7 +9216,7 @@ namespace
 
     bool RequestSuperSkillReset()
     {
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         const int proxySkillId = ResolveAnySuperSkillCarrierSkillId();
@@ -9193,7 +9255,7 @@ namespace
             return false;
         }
 
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         const int proxySkillId = ResolveAnySuperSkillCarrierSkillId();
@@ -9322,8 +9384,8 @@ namespace
         }
         else
         {
-            PopulateManagerTab(manager, 0, "Tab0", kIndependentTab0SkillIds, ARRAYSIZE(kIndependentTab0SkillIds));
-            PopulateManagerTab(manager, 1, "Tab1", kIndependentTab1SkillIds, ARRAYSIZE(kIndependentTab1SkillIds));
+            WriteLogFmt("[SuperSkill] overlay empty: config=%s; native/default SkillWnd fallback disabled",
+                DescribeSuperSkillConfigState());
         }
 
         int currentJobId = 0;
@@ -9649,8 +9711,17 @@ namespace
     }
 }
 
-static bool TryReloadSkillConfigPackageAfterRuntimePasswordReady(SkillManager* manager, const char* reason)
+static bool TryQueueSkillConfigPackageReloadAfterRuntimePasswordReady(const char* reason)
 {
+    const std::wstring dllDir = GetHookDllDirectory();
+    const std::wstring rootDir = ResolveRootDirectoryFromHook();
+    const std::wstring skillDir = ResolveSkillConfigDir(rootDir, dllDir);
+    if (skillDir.empty() ||
+        !ssw::skillpack::IsSkillConfigPackageRuntimePasswordPending(skillDir))
+    {
+        return false;
+    }
+
     const uintptr_t address = g_runtimePasswordAddress;
     if (address == 0)
         return false;
@@ -9682,6 +9753,18 @@ static bool TryReloadSkillConfigPackageAfterRuntimePasswordReady(SkillManager* m
         xorValue,
         xorIp.c_str());
 
+    g_runtimePasswordReloadPending = true;
+    return true;
+}
+
+static bool TryProcessPendingSkillConfigPackageReload()
+{
+    if (!g_runtimePasswordReloadPending)
+        return false;
+
+    g_runtimePasswordReloadPending = false;
+    SkillManager* manager = GetBridgeManager();
+
     ssw::skillpack::InvalidateSkillConfigPackage();
     SkillLocalDataInvalidate();
     ssw::runtime::ReloadFeatureSwitches();
@@ -9691,13 +9774,15 @@ static bool TryReloadSkillConfigPackageAfterRuntimePasswordReady(SkillManager* m
     LoadCustomSkillRoutes();
     LoadNativeSkillInjectionRegistry();
 
-    if (manager && !g_superSkillsBySkillId.empty())
+    if (manager)
     {
         const int currentTab = manager->currentTab;
         ConfigureIndependentOverlayManager(manager);
         if (currentTab >= 0 && currentTab < manager->tabCount)
             manager->currentTab = currentTab;
-        WriteLogFmt("[SuperSkill] overlay rebuilt: runtime password ready reload");
+        WriteLogFmt("[SuperSkill] overlay rebuilt: runtime password ready reload config=%s skills=%d",
+            DescribeSuperSkillConfigState(),
+            (int)g_superSkillsBySkillId.size());
     }
 
     return true;
@@ -9721,6 +9806,7 @@ void SkillOverlayBridgeInitialize(SkillManager* manager)
     g_passiveEffectAttackCountGetterTickBySkillId.clear();
     g_runtimePasswordReadyObservedAddress = 0;
     g_runtimePasswordReadyObservedRaw = 0;
+    g_runtimePasswordReloadPending = false;
     g_loggedMissingSuperSkillConfig = false;
     g_loggedDuplicateSuperSkills = false;
     ssw::runtime::ReloadFeatureSwitches();
@@ -9778,6 +9864,7 @@ void SkillOverlayBridgeShutdown()
     g_lastObservedSkillDataMgr = 0;
     g_runtimePasswordReadyObservedAddress = 0;
     g_runtimePasswordReadyObservedRaw = 0;
+    g_runtimePasswordReloadPending = false;
     for (int i = 0; i < SKILL_BAR_TOTAL_SLOTS; ++i)
         g_pendingQuickSlotRestores[i] = PendingQuickSlotRestore{};
     g_bridge = BridgeState{};
@@ -9801,6 +9888,7 @@ void SkillOverlayBridgeSetRuntimePasswordAddress(uintptr_t address)
     {
         g_runtimePasswordReadyObservedAddress = 0;
         g_runtimePasswordReadyObservedRaw = 0;
+        g_runtimePasswordReloadPending = false;
     }
 
     g_runtimePasswordAddress = address;
@@ -9984,6 +10072,8 @@ void SkillOverlayBridgeObserveExtendedMountSoaringIntent(int mountItemId, int sk
 void SkillOverlayBridgeBeginFrameObservation()
 {
     g_observedSceneFadeAlpha = 0;
+    TryQueueSkillConfigPackageReloadAfterRuntimePasswordReady("frame-observe");
+    TryProcessPendingSkillConfigPackageReload();
 }
 
 void SkillOverlayBridgeObserveSceneFadeCandidate(int imageObj, int x, int y, int w, int h, int alpha, int clientW, int clientH)
@@ -10086,8 +10176,6 @@ void SkillOverlayBridgeSetResetPreviewReceiveHookReady(bool ready)
 
 void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
 {
-    TryReloadSkillConfigPackageAfterRuntimePasswordReady(GetBridgeManager(), "sync-retro");
-
     state.hasSuperSkillData = !g_superSkillsBySkillId.empty();
     state.superSkillCarrierSkillId = g_defaultSuperSpCarrierSkillId;
     state.superSkillPoints = ResolveAvailableSuperSkillPointsForCarrier(state.superSkillCarrierSkillId);
@@ -10131,20 +10219,29 @@ void SkillOverlayBridgeSyncRetroState(RetroSkillRuntimeState& state)
     }
 
     SkillManager* manager = GetBridgeManager();
-    if (manager && g_superSkillsBySkillId.empty() && now - g_lastMissingConfigRetryTick >= kMissingConfigRetryIntervalMs)
+    if (manager &&
+        ShouldAttemptSuperSkillRegistryLoad() &&
+        g_superSkillsBySkillId.empty() &&
+        now - g_lastMissingConfigRetryTick >= kMissingConfigRetryIntervalMs)
     {
+        const bool hadOverlaySkills =
+            manager->tabCount > 0 &&
+            ((manager->tabCount > 0 && manager->tabs[0].count > 0) ||
+             (manager->tabCount > 1 && manager->tabs[1].count > 0));
         g_lastMissingConfigRetryTick = now;
         LoadSuperSkillRegistry();
         LoadCustomSkillRoutes();
         LoadNativeSkillInjectionRegistry();
 
-        if (!g_superSkillsBySkillId.empty())
+        if (!g_superSkillsBySkillId.empty() || g_superSkillConfigLoaded || hadOverlaySkills)
         {
             const int currentTab = manager->currentTab;
             ConfigureIndependentOverlayManager(manager);
             if (currentTab >= 0 && currentTab < manager->tabCount)
                 manager->currentTab = currentTab;
-            WriteLogFmt("[SuperSkill] overlay rebuilt: config retry loaded");
+            WriteLogFmt("[SuperSkill] overlay rebuilt: config retry config=%s skills=%d",
+                DescribeSuperSkillConfigState(),
+                (int)g_superSkillsBySkillId.size());
         }
     }
 
@@ -10408,6 +10505,8 @@ void SkillOverlayBridgeFilterNativeSkillWindow(uintptr_t skillWndThis)
     static DWORD s_lastLogTick = 0;
 
     if (!skillWndThis)
+        return;
+    if (!IsSuperSkillRuntimeEnabled())
         return;
     if (g_superSkillsBySkillId.empty() && g_nativeSkillInjectionsBySkillId.empty())
         return;
@@ -10716,6 +10815,8 @@ bool SkillOverlayBridgeShouldHideFromNativeList(int skillId)
 {
     if (skillId <= 0)
         return false;
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
 
     HiddenSkillDefinition hiddenDefinition = {};
     if (FindHiddenSkillDefinition(skillId, hiddenDefinition) &&
@@ -10730,6 +10831,21 @@ bool SkillOverlayBridgeShouldHideFromNativeList(int skillId)
     if (!FindSuperSkillDefinition(skillId, def))
         return false;
     return ShouldHideSuperSkillInNativeList(skillId, def);
+}
+
+static bool ShouldPreserveLocalPotentialHookInstallForLateConfigLoad()
+{
+    EnsureSkillConfigPathsInitialized();
+
+    const std::wstring dllDir = GetHookDllDirectory();
+    const std::wstring rootDir = ResolveRootDirectoryFromHook();
+    const std::wstring skillDir = ResolveSkillConfigDir(rootDir, dllDir);
+    if (skillDir.empty())
+        return false;
+
+    if (ssw::skillpack::IsSkillConfigPackageRuntimePasswordPending(skillDir))
+        return true;
+    return ssw::skillpack::DoesSkillConfigPackageExist(skillDir);
 }
 
 uintptr_t SkillOverlayBridgePrepareLocalIndependentPotentialBuffer(uintptr_t sourcePtr)
@@ -10770,18 +10886,97 @@ int SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(int offset)
 
 bool SkillOverlayBridgeHasLocalIndependentPotentialBonuses()
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
     RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     return HasAnyLocalIndependentPotentialActualState();
 }
 
 bool SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses()
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
     RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     return !g_activeLocalIndependentPotentialDisplayBySkillId.empty();
 }
 
+bool SkillOverlayBridgeNeedsLocalIndependentPotentialHooks()
+{
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
+    if (HasAnyLocalIndependentPotentialActualState())
+        return true;
+
+    if (g_superSkillsBySkillId.empty())
+        return ShouldPreserveLocalPotentialHookInstallForLateConfigLoad();
+
+    for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+         it != g_superSkillsBySkillId.end();
+         ++it)
+    {
+        const SuperSkillDefinition& definition = it->second;
+        if (!definition.passive &&
+            !definition.independentBuffEnabled &&
+            !definition.clientBonusSpecs.empty())
+        {
+            return true;
+        }
+
+        if (definition.passive &&
+            !definition.independentBuffEnabled &&
+            definition.independentPassiveEnabled &&
+            !definition.clientPassiveBonusSpecs.empty())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SkillOverlayBridgeNeedsLocalIndependentPotentialDisplayHooks()
+{
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
+    if (!g_activeLocalIndependentPotentialDisplayBySkillId.empty())
+        return true;
+
+    if (g_superSkillsBySkillId.empty())
+        return ShouldPreserveLocalPotentialHookInstallForLateConfigLoad();
+
+    for (std::map<int, SuperSkillDefinition>::const_iterator it = g_superSkillsBySkillId.begin();
+         it != g_superSkillsBySkillId.end();
+         ++it)
+    {
+        const SuperSkillDefinition& definition = it->second;
+        if (definition.passive || definition.clientBonusSpecs.empty())
+            continue;
+
+        if (definition.independentDisplayMode == SuperSkillDefinition::IndependentDisplayMode_None ||
+            definition.independentDisplayMode == SuperSkillDefinition::IndependentDisplayMode_Overlay)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SkillOverlayBridgeNeedsOutgoingPacketRewriteInspection()
+{
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
+    return IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketIndependentBuffCancelRewrite) ||
+           IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketSuperSkillUpgradeRewrite) ||
+           IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::PacketRewritePipeline);
+}
+
 bool SkillOverlayBridgeNeedsStatusBarBuffSlotHooks()
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
     if (g_superSkillsBySkillId.empty())
         return true;
 
@@ -10801,6 +10996,8 @@ bool SkillOverlayBridgeNeedsStatusBarBuffSlotHooks()
 
 bool SkillOverlayBridgeHasIndependentBuffOverlayEntries()
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
     RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     if (!IsIndependentBuffGameplaySceneActive())
         return false;
@@ -11120,6 +11317,8 @@ bool SkillOverlayBridgeCancelIndependentBuff(int skillId)
 {
     if (skillId <= 0)
         return false;
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
 
     SuperSkillDefinition definition = {};
     if (!TryResolveIndependentBuffDefinitionForCancel(skillId, definition))
@@ -11162,6 +11361,13 @@ DWORD SkillOverlayBridgeResolveNativeReleaseJumpTarget(int skillId)
 {
     if (skillId <= 0)
         return 0;
+    if (!IsSuperSkillRuntimeEnabled())
+        return 0;
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        LogEchoOfHeroGuard("release-route", skillId);
+        return 0;
+    }
     if (!IsRuntimeFeatureEnabled(ssw::runtime::FeatureSwitchId::SkillReleaseNativeRouteArm))
         return 0;
 
@@ -11243,6 +11449,13 @@ int SkillOverlayBridgeResolveNativeClassifierOverrideSkillId(int skillId)
 {
     if (skillId <= 0)
         return 0;
+    if (!IsSuperSkillRuntimeEnabled())
+        return 0;
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        LogEchoOfHeroGuard("classifier", skillId);
+        return 0;
+    }
 
     const int observedSkillId = skillId;
     CustomSkillUseRoute route = {};
@@ -11340,6 +11553,13 @@ int SkillOverlayBridgeResolveNativePresentationOverrideSkillId(int skillId)
 {
     if (skillId <= 0)
         return 0;
+    if (!IsSuperSkillRuntimeEnabled())
+        return 0;
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        LogEchoOfHeroGuard("presentation", skillId);
+        return 0;
+    }
 
     CustomSkillUseRoute route = {};
     if (FindRouteByCustomSkillId(skillId, route))
@@ -11366,6 +11586,8 @@ int SkillOverlayBridgeResolveNativePresentationOverrideSkillId(int skillId)
 
 bool SkillOverlayBridgeShouldKeepPresentationOverrideAfterDispatch(int observedSkillId, int overriddenSkillId)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
     if (observedSkillId <= 0 || overriddenSkillId <= 0 || observedSkillId == overriddenSkillId)
         return false;
 
@@ -11388,6 +11610,8 @@ bool SkillOverlayBridgeShouldKeepPresentationOverrideAfterDispatch(int observedS
 int SkillOverlayBridgeResolveNativePresentationDesiredSkillId(int observedSkillId)
 {
     if (observedSkillId <= 0)
+        return 0;
+    if (!IsSuperSkillRuntimeEnabled())
         return 0;
 
     const int overriddenSkillId = SkillOverlayBridgeResolveNativePresentationOverrideSkillId(observedSkillId);
@@ -11437,6 +11661,8 @@ int SkillOverlayBridgeResolveNativeGateSkillId(int skillId)
 {
     if (skillId <= 0)
         return skillId;
+    if (!IsSuperSkillRuntimeEnabled())
+        return skillId;
 
     CustomSkillUseRoute route = {};
     if (!FindRouteByCustomSkillId(skillId, route))
@@ -11466,6 +11692,8 @@ int SkillOverlayBridgeResolveNativeGateSkillId(int skillId)
 bool SkillOverlayBridgeShouldForceNativeGateAllow(int skillId)
 {
     if (skillId <= 0)
+        return false;
+    if (!IsSuperSkillRuntimeEnabled())
         return false;
 
     if (IsNativeFlyingMountSkillGateFamily(skillId))
@@ -12142,6 +12370,8 @@ void SkillOverlayBridgeClearMountedDemonJumpTransientState(
 
 int SkillOverlayBridgeResolveNativeLevelLookupSkillId(int skillId)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return skillId;
     if (skillId <= 0)
         return skillId;
 
@@ -12250,6 +12480,8 @@ bool SkillOverlayBridgeIsMountedRuntimeDefinitionResolveActive()
 
 void SkillOverlayBridgeObserveLevelQueryContext(void* skillDataMgr, DWORD playerObj)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return;
     const DWORD mgr = (DWORD)(uintptr_t)skillDataMgr;
     if (mgr && !SafeIsBadReadPtr((void*)mgr, 4))
         g_lastObservedSkillDataMgr = mgr;
@@ -12260,6 +12492,8 @@ void SkillOverlayBridgeObserveLevelQueryContext(void* skillDataMgr, DWORD player
 
 void SkillOverlayBridgeObserveLevelResult(int skillId, int level, bool isBaseLevel)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return;
     if (skillId <= 0 || level < 0)
         return;
 
@@ -12474,6 +12708,8 @@ void SkillOverlayBridgeCompleteMountedNativeReleaseContext(int customSkillId, in
 
 void SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses(uintptr_t skillEntryPtr, int level, uintptr_t effectPtr, const char* sourceTag)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return;
     if (!skillEntryPtr || !effectPtr || level <= 0)
         return;
     if (SafeIsBadReadPtr(reinterpret_cast<void*>(skillEntryPtr), sizeof(DWORD)))
@@ -12719,6 +12955,8 @@ void SkillOverlayBridgeApplyConfiguredPassiveEffectBonuses(uintptr_t skillEntryP
 
 int SkillOverlayBridgeOverridePassiveEffectGetterValue(uintptr_t effectPtr, int originalValue, const char* getterTag, const char* getterSourceTag)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return originalValue;
     if (!effectPtr || !getterTag || !getterTag[0])
         return originalValue;
 
@@ -12909,6 +13147,13 @@ int SkillOverlayBridgeOverridePassiveEffectGetterValue(uintptr_t effectPtr, int 
                 observedLevel,
                 packetLen,
                 (DWORD)(uintptr_t)callerRetAddr);
+        }
+        if (SkillOverlayBridgeIsEchoOfHeroSkillId(observedSkillId))
+        {
+            LogEchoOfHeroGuard("packet-native-only", observedSkillId);
+            ClearActiveNativeReleaseContext();
+            ClearRecentNativePresentationContext();
+            return false;
         }
 
         LogConfiguredPassiveSemanticBonusesForSkill(
@@ -13108,6 +13353,9 @@ int SkillOverlayBridgeOverridePassiveEffectGetterValue(uintptr_t effectPtr, int 
 void SkillOverlayBridgeInspectOutgoingPacketMutable(void** packetDataSlot, int* packetLenSlot, uintptr_t callerRetAddr)
 {
     if (!packetDataSlot || !packetLenSlot || !*packetDataSlot || *packetLenSlot < 8)
+        return;
+
+    if (!SkillOverlayBridgeNeedsOutgoingPacketRewriteInspection())
         return;
 
     if (!g_outgoingPacketRewriteRouterInitialized)
@@ -13401,6 +13649,8 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
 
 void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr_t callerRetAddr)
 {
+    if (!IsSuperSkillRuntimeEnabled())
+        return;
     if (!inPacket)
         return;
 
@@ -13478,7 +13728,7 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
 
     if (opcode == (int)kSuperSkillLevelSyncPacketOpcode)
     {
-        if (g_superSkillsBySkillId.empty())
+        if (ShouldAttemptSuperSkillRegistryLoad())
             LoadSuperSkillRegistry();
 
         if (!payload || payloadLen < 4)
@@ -13615,10 +13865,32 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
 
 bool TryReleaseSkillViaNativeB2F370(int skillId);
 
+bool SkillOverlayBridgeIsEchoOfHeroSkillId(int skillId)
+{
+    switch (skillId)
+    {
+    case 1005:
+    case 10001005:
+    case 20001005:
+    case 20011005:
+    case 20021005:
+    case 30001005:
+    case 30011005:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool SkillOverlayBridgeUseSkill(int skillId)
 {
     if (skillId <= 0)
         return false;
+    if (!IsSuperSkillRuntimeEnabled())
+    {
+        WriteLogFmt("[SkillBridge] use BLOCKED skillId=%d (skill.runtime.enabled=0)", skillId);
+        return false;
+    }
 
     SkillManager* mgr = nullptr;
     if (g_bridge.managerSource.userData)
@@ -13652,6 +13924,11 @@ bool SkillOverlayBridgeUseSkill(int skillId)
                 if (skill.IsOnCooldown())
                 {
                     WriteLogFmt("[SkillBridge] use BLOCKED skillId=%d (cooldown)", skillId);
+                    return false;
+                }
+                if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+                {
+                    LogEchoOfHeroGuard("overlay-use-blocked", skillId);
                     return false;
                 }
 
@@ -13711,8 +13988,15 @@ bool SkillOverlayBridgeUseSkill(int skillId)
 // ============================================================================
     bool SkillOverlayBridgeAssignSkillToQuickSlot(int slotIndex, int skillId)
     {
+        if (!IsSuperSkillRuntimeEnabled())
+            return false;
         if (slotIndex < 0 || slotIndex >= SKILL_BAR_TOTAL_SLOTS || skillId <= 0)
             return false;
+        if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+        {
+            LogEchoOfHeroGuard("assign-blocked", skillId);
+            return false;
+        }
 
     int nativeSkillId = skillId;
     CustomSkillUseRoute route = {};
@@ -13901,6 +14185,11 @@ bool SkillOverlayBridgeUseSkill(int skillId)
     {
         if (skillId <= 0)
             return false;
+        if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+        {
+            LogEchoOfHeroGuard("native-b2f370-blocked", skillId);
+            return false;
+        }
 
         if (SafeIsBadReadPtr((void*)ADDR_UserLocal, 4))
         {

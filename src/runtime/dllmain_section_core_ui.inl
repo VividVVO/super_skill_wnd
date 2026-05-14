@@ -47,7 +47,15 @@ static bool GetSkillWndScreenRectForD3D(RECT* outRect)
     int w = CWnd_GetWidth(g_SkillWndThis);
     int h = CWnd_GetHeight(g_SkillWndThis);
     if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+    {
+        RECT wndRect = {};
+        if (GetCWndScreenRectByObj(g_SkillWndThis, &wndRect))
+        {
+            *outRect = wndRect;
+            return true;
+        }
         return false;
+    }
 
     *outRect = MakeRectXYWH(x, y, w, h);
     return true;
@@ -57,6 +65,39 @@ static bool GetSuperButtonBaseRectForD3D(RECT* outRect)
 {
     if (!outRect)
         return false;
+
+    if (UseImguiOverlayPanelRuntime())
+    {
+        int btnX = 0;
+        int btnY = 0;
+        int btnW = 0;
+        int btnH = 0;
+        int panelX = 0;
+        int panelY = 0;
+        const char* src = "none";
+        if (ResolveOverlayButtonAndPanelAnchor(
+                &btnX, &btnY, &btnW, &btnH,
+                &panelX, &panelY,
+                &src))
+        {
+            static DWORD s_lastRectLogTick = 0;
+            const DWORD now = GetTickCount();
+            if (now - s_lastRectLogTick > 1000)
+            {
+                s_lastRectLogTick = now;
+                WriteLogFmt("[SuperBtnRect] src=%s btn=(%d,%d,%d,%d) panel=(%d,%d)",
+                    src,
+                    btnX,
+                    btnY,
+                    btnX + btnW,
+                    btnY + btnH,
+                    panelX,
+                    panelY);
+            }
+            *outRect = MakeRectXYWH(btnX, btnY, btnW, btnH);
+            return true;
+        }
+    }
 
     int x = 0, y = 0, w = 0, h = 0;
     if (!GetExpectedButtonRectVt(&x, &y, &w, &h) &&
@@ -238,7 +279,7 @@ static void ResetSuperBtnD3DInteractionState()
 static bool UpdateSuperBtnVisiblePieces(const char* reason)
 {
     g_SuperBtnVisiblePieces.clear();
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
+    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_SkillWndThis)
         return false;
 
     RECT baseRect = {};
@@ -322,7 +363,7 @@ static bool HandleSuperBtnD3DWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
     if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
         return false;
 
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
+    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_SkillWndThis)
         return false;
 
     switch (m) {
@@ -400,7 +441,7 @@ static bool HandleSuperBtnD3DWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 static bool ShouldSuppressGameMouseForSuperBtnD3D()
 {
-    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_NativeBtnCreated || !g_SkillWndThis)
+    if (!ENABLE_SUPERBTN_D3D_BUTTON_MODE || !g_Ready || !g_SkillWndThis)
         return false;
     return g_SuperBtnD3DPressed || g_SuperBtnD3DHover;
 }
@@ -1845,10 +1886,12 @@ static void DrawSuperButtonTextureInPresentD3D8(void* pDevice8)
 {
     if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
         return;
-    if (!pDevice8 || !g_NativeBtnCreated || !g_SuperBtnObj)
+    if (!pDevice8)
         return;
 
     if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
+        if (!IsSuperButtonSelfRenderReady())
+            return;
         if (!g_D3D8TexturesLoaded)
             return;
         if (!UpdateSuperBtnVisiblePieces("d3d8_present_draw"))
@@ -1902,6 +1945,9 @@ static void DrawSuperButtonTextureInPresentD3D8(void* pDevice8)
         }
         return;
     }
+
+    if (!g_NativeBtnCreated || !g_SuperBtnObj)
+        return;
 
     if (!ENABLE_PRESENT_SUPERBTN_DRAW || !g_D3D8TexturesLoaded)
         return;
@@ -2247,10 +2293,12 @@ static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
     if (ENABLE_POST_B9F6E0_NATIVE_TIMING_TEST)
         return;
 
-    if (!pDevice || !g_NativeBtnCreated || !g_SuperBtnObj)
+    if (!pDevice)
         return;
 
     if (ENABLE_SUPERBTN_D3D_BUTTON_MODE) {
+        if (!IsSuperButtonSelfRenderReady())
+            return;
         if (!g_TexturesLoaded)
             return;
         if (!UpdateSuperBtnVisiblePieces("present_draw"))
@@ -2300,6 +2348,9 @@ static void DrawSuperButtonTextureInPresent(IDirect3DDevice9* pDevice)
         }
         return;
     }
+
+    if (!g_NativeBtnCreated || !g_SuperBtnObj)
+        return;
 
     if (!ENABLE_PRESENT_SUPERBTN_DRAW)
         return;

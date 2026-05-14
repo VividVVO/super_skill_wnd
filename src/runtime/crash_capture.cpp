@@ -10,6 +10,10 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <exception>
+#include <intrin.h>
+#include <signal.h>
+#include <stdlib.h>
 
 namespace ssw
 {
@@ -27,17 +31,58 @@ namespace
         PMINIDUMP_CALLBACK_INFORMATION);
 
     static const DWORD kMsVcThreadNameException = 0x406D1388;
+    static const DWORD kStatusInvalidCrtParameter = 0xC0000417;
+    static const DWORD kCrashCodePureCall = 0xE0001001;
+    static const DWORD kCrashCodeTerminate = 0xE0001002;
+    static const DWORD kCrashCodeSigAbort = 0xE0001003;
+    static const UINT kAbortBehaviorMask = _WRITE_ABORT_MSG | _CALL_REPORTFAULT;
 
     PVOID g_crashCaptureVectoredHandle = nullptr;
     LPTOP_LEVEL_EXCEPTION_FILTER g_previousUnhandledExceptionFilter = nullptr;
     LONG g_crashCaptureBootstrapInitialized = 0;
     LONG g_crashCaptureInfrastructureInstalled = 0;
+    LONG g_crashCaptureCrtHandlersInstalled = 0;
     LONG g_crashCaptureEnabled = 0;
     LONG g_crashCaptureWriting = 0;
     LONG g_crashCaptureCandidateLogBudget = 8;
+    LONG g_crashCaptureCandidateArtifactBudget = 16;
     LONG g_savedErrorModeValid = 0;
     UINT g_savedErrorMode = 0;
+    LONG g_savedAbortBehaviorValid = 0;
+    UINT g_savedAbortBehavior = 0;
     wchar_t g_crashOutputDirectory[MAX_PATH] = {};
+    HMODULE g_dbgHelpModule = nullptr;
+    MiniDumpWriteDumpFn g_miniDumpWriteDump = nullptr;
+    wchar_t g_dbgHelpModulePath[MAX_PATH] = {};
+    _invalid_parameter_handler g_previousInvalidParameterHandler = nullptr;
+    _purecall_handler g_previousPureCallHandler = nullptr;
+    std::terminate_handler g_previousTerminateHandler = nullptr;
+    typedef void(__cdecl* SignalHandlerFn)(int);
+    SignalHandlerFn g_previousSigAbortHandler = SIG_DFL;
+
+    struct DumpWriteDiagnostics
+    {
+        bool attempted = false;
+        bool wroteDump = false;
+        DWORD resolveDbgHelpError = 0;
+        DWORD createFileError = 0;
+        DWORD primaryWriteError = 0;
+        DWORD fallbackWriteError = 0;
+        unsigned long long fileSize = 0;
+    };
+
+    void InstallCrashCaptureCoreInfrastructure();
+    void InstallCrashCaptureCrtHandlers();
+    LONG WINAPI CrashCaptureUnhandledExceptionFilter(EXCEPTION_POINTERS* exceptionPointers);
+    LONG CALLBACK CrashCaptureVectoredHandler(EXCEPTION_POINTERS* exceptionPointers);
+    void WriteCrashArtifacts(EXCEPTION_POINTERS* exceptionPointers, const char* captureSource, bool attemptDump);
+    void CaptureSyntheticCrash(
+        DWORD exceptionCode,
+        const void* exceptionAddress,
+        ULONG parameterCount,
+        const ULONG_PTR* parameters,
+        const char* captureSource);
+    [[noreturn]] void CrashCaptureTerminateProcess(UINT exitCode);
 
     bool CopyWideText(const wchar_t* source, wchar_t* destination, size_t destinationCount)
     {
@@ -220,6 +265,176 @@ namespace
         return false;
     }
 
+    bool ResolveDbgHelpModule()
+    {
+        if (g_dbgHelpModule && g_miniDumpWriteDump)
+            return true;
+
+        wchar_t systemDirectory[MAX_PATH] = {};
+        wchar_t dbgHelpPath[MAX_PATH] = {};
+        HMODULE dbgHelp = nullptr;
+
+        const UINT systemLength = ::GetSystemDirectoryW(systemDirectory, MAX_PATH);
+        if (systemLength > 0 &&
+            systemLength < MAX_PATH &&
+            CombinePathWide(systemDirectory, L"dbghelp.dll", dbgHelpPath, MAX_PATH))
+        {
+            dbgHelp = ::LoadLibraryW(dbgHelpPath);
+        }
+
+        if (!dbgHelp)
+            dbgHelp = ::LoadLibraryW(L"dbghelp.dll");
+
+        if (!dbgHelp)
+            return false;
+
+        MiniDumpWriteDumpFn writeDump = reinterpret_cast<MiniDumpWriteDumpFn>(
+            ::GetProcAddress(dbgHelp, "MiniDumpWriteDump"));
+        if (!writeDump)
+        {
+            ::FreeLibrary(dbgHelp);
+            return false;
+        }
+
+        g_dbgHelpModule = dbgHelp;
+        g_miniDumpWriteDump = writeDump;
+        g_dbgHelpModulePath[0] = L'\0';
+        ::GetModuleFileNameW(g_dbgHelpModule, g_dbgHelpModulePath, MAX_PATH);
+        return true;
+    }
+
+    [[noreturn]] void CrashCaptureTerminateProcess(UINT exitCode)
+    {
+        ::TerminateProcess(::GetCurrentProcess(), exitCode);
+        ::ExitProcess(exitCode);
+    }
+
+    void InstallCrashCaptureCoreInfrastructure()
+    {
+        if (InterlockedCompareExchange(&g_crashCaptureInfrastructureInstalled, 1, 0) != 0)
+            return;
+
+        if (InterlockedCompareExchange(&g_savedErrorModeValid, 1, 0) == 0)
+            g_savedErrorMode = ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+        else
+            ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+
+        g_previousUnhandledExceptionFilter = ::SetUnhandledExceptionFilter(&CrashCaptureUnhandledExceptionFilter);
+        g_crashCaptureVectoredHandle = ::AddVectoredExceptionHandler(1, &CrashCaptureVectoredHandler);
+    }
+
+    void __cdecl CrashCaptureInvalidParameterHandler(
+        const wchar_t* expression,
+        const wchar_t* function,
+        const wchar_t* file,
+        unsigned int line,
+        uintptr_t reserved)
+    {
+        ULONG_PTR parameters[5] = {};
+        parameters[0] = reinterpret_cast<ULONG_PTR>(expression);
+        parameters[1] = reinterpret_cast<ULONG_PTR>(function);
+        parameters[2] = reinterpret_cast<ULONG_PTR>(file);
+        parameters[3] = static_cast<ULONG_PTR>(line);
+        parameters[4] = static_cast<ULONG_PTR>(reserved);
+        CaptureSyntheticCrash(
+            kStatusInvalidCrtParameter,
+            _ReturnAddress(),
+            5,
+            parameters,
+            "invalid_parameter");
+
+        if (g_previousInvalidParameterHandler &&
+            g_previousInvalidParameterHandler != &CrashCaptureInvalidParameterHandler)
+        {
+            __try
+            {
+                g_previousInvalidParameterHandler(expression, function, file, line, reserved);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+
+        CrashCaptureTerminateProcess(kStatusInvalidCrtParameter);
+    }
+
+    void __cdecl CrashCapturePureCallHandler()
+    {
+        CaptureSyntheticCrash(kCrashCodePureCall, _ReturnAddress(), 0, nullptr, "purecall");
+
+        if (g_previousPureCallHandler &&
+            g_previousPureCallHandler != &CrashCapturePureCallHandler)
+        {
+            __try
+            {
+                g_previousPureCallHandler();
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+
+        CrashCaptureTerminateProcess(kCrashCodePureCall);
+    }
+
+    void __cdecl CrashCaptureTerminateHandler()
+    {
+        CaptureSyntheticCrash(kCrashCodeTerminate, _ReturnAddress(), 0, nullptr, "terminate");
+
+        if (g_previousTerminateHandler &&
+            g_previousTerminateHandler != &CrashCaptureTerminateHandler)
+        {
+            __try
+            {
+                g_previousTerminateHandler();
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+
+        CrashCaptureTerminateProcess(kCrashCodeTerminate);
+    }
+
+    void __cdecl CrashCaptureAbortSignalHandler(int signalValue)
+    {
+        ULONG_PTR parameters[1] = {};
+        parameters[0] = static_cast<ULONG_PTR>(signalValue);
+        CaptureSyntheticCrash(kCrashCodeSigAbort, _ReturnAddress(), 1, parameters, "sigabrt");
+
+        if (g_previousSigAbortHandler &&
+            g_previousSigAbortHandler != SIG_DFL &&
+            g_previousSigAbortHandler != SIG_IGN &&
+            g_previousSigAbortHandler != &CrashCaptureAbortSignalHandler)
+        {
+            __try
+            {
+                g_previousSigAbortHandler(signalValue);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+        }
+
+        CrashCaptureTerminateProcess(kCrashCodeSigAbort);
+    }
+
+    void InstallCrashCaptureCrtHandlers()
+    {
+        if (InterlockedCompareExchange(&g_crashCaptureCrtHandlersInstalled, 1, 0) != 0)
+            return;
+
+        if (InterlockedCompareExchange(&g_savedAbortBehaviorValid, 1, 0) == 0)
+            g_savedAbortBehavior = _set_abort_behavior(0, kAbortBehaviorMask);
+        else
+            _set_abort_behavior(0, kAbortBehaviorMask);
+
+        g_previousInvalidParameterHandler = _set_invalid_parameter_handler(&CrashCaptureInvalidParameterHandler);
+        g_previousPureCallHandler = _set_purecall_handler(&CrashCapturePureCallHandler);
+        g_previousTerminateHandler = std::set_terminate(&CrashCaptureTerminateHandler);
+        g_previousSigAbortHandler = signal(SIGABRT, &CrashCaptureAbortSignalHandler);
+    }
+
     bool ShouldLogVectoredCandidate(DWORD exceptionCode)
     {
         switch (exceptionCode)
@@ -234,6 +449,22 @@ namespace
         case EXCEPTION_NONCONTINUABLE_EXCEPTION:
         case EXCEPTION_PRIV_INSTRUCTION:
         case EXCEPTION_STACK_OVERFLOW:
+        case 0xC0000374: // STATUS_HEAP_CORRUPTION
+        case 0xC0000409: // STATUS_STACK_BUFFER_OVERRUN / fail-fast
+        case 0xC0000602: // STATUS_FAIL_FAST_EXCEPTION
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool ShouldCaptureImmediatelyInVectoredHandler(DWORD exceptionCode)
+    {
+        switch (exceptionCode)
+        {
+        case 0xC0000374: // STATUS_HEAP_CORRUPTION
+        case 0xC0000409: // STATUS_STACK_BUFFER_OVERRUN / fail-fast
+        case 0xC0000602: // STATUS_FAIL_FAST_EXCEPTION
             return true;
         default:
             return false;
@@ -428,13 +659,14 @@ namespace
 
         wchar_t baseName[160] = {};
         swprintf_s(baseName,
-            L"SuperSkillCrash_%04u%02u%02u_%02u%02u%02u_pid%lu_tid%lu_code%08X",
+            L"SuperSkillCrash_%04u%02u%02u_%02u%02u%02u_%03u_pid%lu_tid%lu_code%08X",
             (unsigned int)localTime.wYear,
             (unsigned int)localTime.wMonth,
             (unsigned int)localTime.wDay,
             (unsigned int)localTime.wHour,
             (unsigned int)localTime.wMinute,
             (unsigned int)localTime.wSecond,
+            (unsigned int)localTime.wMilliseconds,
             (unsigned long)::GetCurrentProcessId(),
             (unsigned long)threadId,
             (unsigned int)exceptionCode);
@@ -446,10 +678,23 @@ namespace
         return true;
     }
 
-    bool TryWriteMiniDumpFile(const wchar_t* dumpPath, EXCEPTION_POINTERS* exceptionPointers)
+    bool TryWriteMiniDumpFile(const wchar_t* dumpPath, EXCEPTION_POINTERS* exceptionPointers, DumpWriteDiagnostics* diagnostics)
     {
+        if (diagnostics)
+            *diagnostics = DumpWriteDiagnostics{};
+
         if (!dumpPath || !dumpPath[0] || !exceptionPointers)
             return false;
+
+        if (diagnostics)
+            diagnostics->attempted = true;
+
+        if (!g_miniDumpWriteDump && !ResolveDbgHelpModule())
+        {
+            if (diagnostics)
+                diagnostics->resolveDbgHelpError = ::GetLastError();
+            return false;
+        }
 
         HANDLE dumpFile = ::CreateFileW(
             dumpPath,
@@ -460,21 +705,9 @@ namespace
             FILE_ATTRIBUTE_NORMAL,
             nullptr);
         if (dumpFile == INVALID_HANDLE_VALUE)
-            return false;
-
-        HMODULE dbgHelp = ::LoadLibraryW(L"dbghelp.dll");
-        if (!dbgHelp)
         {
-            ::CloseHandle(dumpFile);
-            return false;
-        }
-
-        MiniDumpWriteDumpFn writeDump = reinterpret_cast<MiniDumpWriteDumpFn>(
-            ::GetProcAddress(dbgHelp, "MiniDumpWriteDump"));
-        if (!writeDump)
-        {
-            ::FreeLibrary(dbgHelp);
-            ::CloseHandle(dumpFile);
+            if (diagnostics)
+                diagnostics->createFileError = ::GetLastError();
             return false;
         }
 
@@ -492,7 +725,7 @@ namespace
             MiniDumpWithThreadInfo |
             MiniDumpWithUnloadedModules);
 
-        BOOL ok = writeDump(
+        BOOL ok = g_miniDumpWriteDump(
             ::GetCurrentProcess(),
             ::GetCurrentProcessId(),
             dumpFile,
@@ -503,7 +736,13 @@ namespace
 
         if (!ok)
         {
-            ok = writeDump(
+            if (diagnostics)
+                diagnostics->primaryWriteError = ::GetLastError();
+
+            ::SetFilePointer(dumpFile, 0, nullptr, FILE_BEGIN);
+            ::SetEndOfFile(dumpFile);
+
+            ok = g_miniDumpWriteDump(
                 ::GetCurrentProcess(),
                 ::GetCurrentProcessId(),
                 dumpFile,
@@ -511,14 +750,34 @@ namespace
                 &exceptionInfo,
                 nullptr,
                 nullptr);
+            if (!ok && diagnostics)
+                diagnostics->fallbackWriteError = ::GetLastError();
         }
 
-        ::FreeLibrary(dbgHelp);
+        ::FlushFileBuffers(dumpFile);
+        LARGE_INTEGER fileSize = {};
+        unsigned long long finalFileSize = 0;
+        if (::GetFileSizeEx(dumpFile, &fileSize) && fileSize.QuadPart > 0)
+            finalFileSize = static_cast<unsigned long long>(fileSize.QuadPart);
+        if (diagnostics)
+            diagnostics->fileSize = finalFileSize;
         ::CloseHandle(dumpFile);
-        return ok == TRUE;
+
+        const bool wroteDump = ok == TRUE && finalFileSize > 0;
+        if (!wroteDump)
+            ::DeleteFileW(dumpPath);
+
+        if (diagnostics)
+            diagnostics->wroteDump = wroteDump;
+        return wroteDump;
     }
 
-    void WriteCrashTextFile(const wchar_t* textPath, const wchar_t* dumpPath, bool dumpWritten, EXCEPTION_POINTERS* exceptionPointers)
+    void WriteCrashTextFile(
+        const wchar_t* textPath,
+        const wchar_t* dumpPath,
+        const DumpWriteDiagnostics& diagnostics,
+        const char* captureSource,
+        EXCEPTION_POINTERS* exceptionPointers)
     {
         if (!textPath || !textPath[0])
             return;
@@ -541,8 +800,10 @@ namespace
 
         char dumpPathUtf8[MAX_PATH * 3] = {};
         char outputDirUtf8[MAX_PATH * 3] = {};
+        char dbgHelpPathUtf8[MAX_PATH * 3] = {};
         WideToUtf8Buffer(dumpPath, dumpPathUtf8, (int)sizeof(dumpPathUtf8));
         WideToUtf8Buffer(g_crashOutputDirectory, outputDirUtf8, (int)sizeof(outputDirUtf8));
+        WideToUtf8Buffer(g_dbgHelpModulePath, dbgHelpPathUtf8, (int)sizeof(dbgHelpPathUtf8));
 
         WriteRawText(file, "SuperSkillWnd Crash Capture\r\n");
         WriteTextFormat(file,
@@ -556,13 +817,24 @@ namespace
         WriteTextFormat(file, "ProcessId=%lu ThreadId=%lu\r\n",
             (unsigned long)::GetCurrentProcessId(),
             (unsigned long)::GetCurrentThreadId());
+        WriteTextFormat(file, "CaptureSource=%s\r\n",
+            (captureSource && captureSource[0]) ? captureSource : "(unknown)");
         WriteTextFormat(file, "CaptureEnabled=%d Installed=%d OutputDir=%s\r\n",
             InterlockedCompareExchange(&g_crashCaptureEnabled, 0, 0) != 0 ? 1 : 0,
             InterlockedCompareExchange(&g_crashCaptureInfrastructureInstalled, 0, 0) != 0 ? 1 : 0,
             outputDirUtf8[0] ? outputDirUtf8 : "(unavailable)");
-        WriteTextFormat(file, "DumpWritten=%d DumpPath=%s\r\n",
-            dumpWritten ? 1 : 0,
+        WriteTextFormat(file, "DumpAttempted=%d DumpWritten=%d DumpSize=%llu DumpPath=%s\r\n",
+            diagnostics.attempted ? 1 : 0,
+            diagnostics.wroteDump ? 1 : 0,
+            diagnostics.fileSize,
             dumpPathUtf8[0] ? dumpPathUtf8 : "(unavailable)");
+        WriteTextFormat(file,
+            "DbgHelp=%s ResolveErr=0x%08X CreateErr=0x%08X PrimaryErr=0x%08X FallbackErr=0x%08X\r\n",
+            dbgHelpPathUtf8[0] ? dbgHelpPathUtf8 : "(unavailable)",
+            (unsigned int)diagnostics.resolveDbgHelpError,
+            (unsigned int)diagnostics.createFileError,
+            (unsigned int)diagnostics.primaryWriteError,
+            (unsigned int)diagnostics.fallbackWriteError);
         WriteTextFormat(file, "RuntimeLog=%s\r\n",
             GetRuntimeLogPathA()[0] ? GetRuntimeLogPathA() : "(disabled)");
 
@@ -583,6 +855,14 @@ namespace
             (unsigned int)record->ExceptionFlags,
             (unsigned int)(uintptr_t)record->ExceptionAddress,
             (unsigned int)record->NumberParameters);
+
+        for (DWORD i = 0; i < record->NumberParameters && i < EXCEPTION_MAXIMUM_PARAMETERS; ++i)
+        {
+            WriteTextFormat(file,
+                "Param[%u]=0x%08X\r\n",
+                (unsigned int)i,
+                (unsigned int)record->ExceptionInformation[i]);
+        }
 
         if (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
             record->ExceptionCode == EXCEPTION_IN_PAGE_ERROR)
@@ -629,7 +909,7 @@ namespace
         ::CloseHandle(file);
     }
 
-    void WriteCrashArtifacts(EXCEPTION_POINTERS* exceptionPointers)
+    void WriteCrashArtifacts(EXCEPTION_POINTERS* exceptionPointers, const char* captureSource, bool attemptDump)
     {
         if (!exceptionPointers || !exceptionPointers->ExceptionRecord || !exceptionPointers->ContextRecord)
             return;
@@ -644,8 +924,8 @@ namespace
             const bool pathReady = BuildCrashArtifactPaths(
                     exceptionPointers->ExceptionRecord->ExceptionCode,
                     ::GetCurrentThreadId(),
-                    dumpPath,
-                    MAX_PATH,
+                    attemptDump ? dumpPath : nullptr,
+                    attemptDump ? MAX_PATH : 0,
                     textPath,
                     MAX_PATH);
             if (!pathReady)
@@ -654,13 +934,19 @@ namespace
             }
             else
             {
-                const bool dumpWritten = TryWriteMiniDumpFile(dumpPath, exceptionPointers);
-                WriteCrashTextFile(textPath, dumpPath, dumpWritten, exceptionPointers);
+                DumpWriteDiagnostics diagnostics = {};
+                bool dumpWritten = false;
+                if (attemptDump)
+                    dumpWritten = TryWriteMiniDumpFile(dumpPath, exceptionPointers, &diagnostics);
+                WriteCrashTextFile(textPath, dumpPath, diagnostics, captureSource, exceptionPointers);
 
                 char textPathUtf8[MAX_PATH * 3] = {};
                 WideToUtf8Buffer(textPath, textPathUtf8, (int)sizeof(textPathUtf8));
-                WriteLogFmt("[CrashCapture] wrote dump=%d text=%s",
+                WriteLogFmt("[CrashCapture] wrote dump=%d attempted=%d size=%llu source=%s text=%s",
                     dumpWritten ? 1 : 0,
+                    diagnostics.attempted ? 1 : 0,
+                    diagnostics.fileSize,
+                    (captureSource && captureSource[0]) ? captureSource : "unknown",
                     textPathUtf8[0] ? textPathUtf8 : "(unavailable)");
             }
         }
@@ -672,10 +958,42 @@ namespace
         InterlockedExchange(&g_crashCaptureWriting, 0);
     }
 
+    void CaptureSyntheticCrash(
+        DWORD exceptionCode,
+        const void* exceptionAddress,
+        ULONG parameterCount,
+        const ULONG_PTR* parameters,
+        const char* captureSource)
+    {
+        if (InterlockedCompareExchange(&g_crashCaptureEnabled, 0, 0) == 0)
+            return;
+
+        CONTEXT context = {};
+        ::RtlCaptureContext(&context);
+
+        EXCEPTION_RECORD record = {};
+        record.ExceptionCode = exceptionCode;
+        record.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
+        record.ExceptionAddress = const_cast<void*>(
+            exceptionAddress ? exceptionAddress : reinterpret_cast<const void*>(_ReturnAddress()));
+
+        const ULONG safeCount =
+            (parameterCount <= EXCEPTION_MAXIMUM_PARAMETERS) ? parameterCount : EXCEPTION_MAXIMUM_PARAMETERS;
+        record.NumberParameters = safeCount;
+        for (ULONG i = 0; i < safeCount; ++i)
+            record.ExceptionInformation[i] = parameters ? parameters[i] : 0;
+
+        EXCEPTION_POINTERS pointers = {};
+        pointers.ExceptionRecord = &record;
+        pointers.ContextRecord = &context;
+
+        WriteCrashArtifacts(&pointers, captureSource, true);
+    }
+
     LONG WINAPI CrashCaptureUnhandledExceptionFilter(EXCEPTION_POINTERS* exceptionPointers)
     {
         if (InterlockedCompareExchange(&g_crashCaptureEnabled, 0, 0) != 0)
-            WriteCrashArtifacts(exceptionPointers);
+            WriteCrashArtifacts(exceptionPointers, "unhandled", true);
 
         if (g_previousUnhandledExceptionFilter &&
             g_previousUnhandledExceptionFilter != &CrashCaptureUnhandledExceptionFilter)
@@ -719,23 +1037,26 @@ namespace
                 (unsigned long)::GetCurrentThreadId());
         }
 
+        if (ShouldCaptureImmediatelyInVectoredHandler(exceptionCode))
+        {
+            WriteCrashArtifacts(exceptionPointers, "vectored", true);
+        }
+        else
+        {
+            LONG remainingArtifactBudget = InterlockedDecrement(&g_crashCaptureCandidateArtifactBudget);
+            if (remainingArtifactBudget >= 0)
+                WriteCrashArtifacts(exceptionPointers, "vectored-firstchance", false);
+        }
+
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
     void EnsureCrashCaptureInfrastructureInstalled()
     {
-        if (InterlockedCompareExchange(&g_crashCaptureInfrastructureInstalled, 1, 0) != 0)
-            return;
-
+        InstallCrashCaptureCoreInfrastructure();
+        InstallCrashCaptureCrtHandlers();
         ResolveCrashOutputDirectory(g_crashOutputDirectory, MAX_PATH);
-
-        if (InterlockedCompareExchange(&g_savedErrorModeValid, 1, 0) == 0)
-            g_savedErrorMode = ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-        else
-            ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-
-        g_previousUnhandledExceptionFilter = ::SetUnhandledExceptionFilter(&CrashCaptureUnhandledExceptionFilter);
-        g_crashCaptureVectoredHandle = ::AddVectoredExceptionHandler(1, &CrashCaptureVectoredHandler);
+        ResolveDbgHelpModule();
 
         char outputDirUtf8[MAX_PATH * 3] = {};
         WideToUtf8Buffer(g_crashOutputDirectory, outputDirUtf8, (int)sizeof(outputDirUtf8));
@@ -759,11 +1080,19 @@ namespace
     }
 } // namespace
 
+void BootstrapCrashCaptureRuntime()
+{
+    InterlockedExchange(&g_crashCaptureEnabled, 1);
+    InstallCrashCaptureCoreInfrastructure();
+    InstallCrashCaptureCrtHandlers();
+}
+
 void InitializeCrashCaptureRuntime()
 {
     if (InterlockedCompareExchange(&g_crashCaptureBootstrapInitialized, 1, 0) == 0)
         SetFeatureSwitchReloadCallback(&RefreshCrashCaptureFromFeatureSwitch);
 
+    InstallCrashCaptureCrtHandlers();
     RefreshCrashCaptureFromFeatureSwitch();
 }
 
@@ -783,6 +1112,31 @@ void ShutdownCrashCaptureRuntime()
     if (InterlockedCompareExchange(&g_savedErrorModeValid, 0, 0) != 0)
         ::SetErrorMode(g_savedErrorMode);
 
+    if (InterlockedExchange(&g_crashCaptureCrtHandlersInstalled, 0) != 0)
+    {
+        _set_invalid_parameter_handler(g_previousInvalidParameterHandler);
+        g_previousInvalidParameterHandler = nullptr;
+
+        _set_purecall_handler(g_previousPureCallHandler);
+        g_previousPureCallHandler = nullptr;
+
+        std::set_terminate(g_previousTerminateHandler);
+        g_previousTerminateHandler = nullptr;
+
+        signal(SIGABRT, g_previousSigAbortHandler);
+        g_previousSigAbortHandler = SIG_DFL;
+    }
+
+    if (InterlockedCompareExchange(&g_savedAbortBehaviorValid, 0, 0) != 0)
+        _set_abort_behavior(g_savedAbortBehavior, kAbortBehaviorMask);
+
+    if (g_dbgHelpModule)
+    {
+        ::FreeLibrary(g_dbgHelpModule);
+        g_dbgHelpModule = nullptr;
+    }
+    g_miniDumpWriteDump = nullptr;
+    g_dbgHelpModulePath[0] = L'\0';
     InterlockedExchange(&g_crashCaptureInfrastructureInstalled, 0);
 }
 

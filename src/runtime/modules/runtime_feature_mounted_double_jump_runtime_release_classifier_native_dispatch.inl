@@ -1,5 +1,16 @@
 static void __cdecl hkSkillReleaseClassifierDispatch(int skillId)
 {
+    if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
+    {
+        g_ForcedNativeReleaseJump = 0;
+        static LONG s_echoBranchPassthroughLogBudget = 24;
+        if (InterlockedDecrement(&s_echoBranchPassthroughLogBudget) >= 0)
+        {
+            WriteLogFmt("[SkillReleaseHook] B3144D echo native-only skillId=%d", skillId);
+        }
+        return;
+    }
+
     const DWORD forcedJump =
         SkillOverlayBridgeResolveNativeReleaseJumpTarget(skillId);
     if (IsMountedDemonJumpRelatedSkillId(skillId))

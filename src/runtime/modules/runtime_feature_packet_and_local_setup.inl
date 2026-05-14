@@ -1,20 +1,229 @@
-// 发包与本地观测安装模块：负责 packet hook、本地属性观测和状态栏 hook 聚合安装。
+// 发包与本地观测安装模块：负责 packet hook、本地 BUFF 观测、UI 观测和移动能力 hook 安装。
 static void RefreshRuntimeFeatureHooksAfterFeatureSwitchReload()
 {
-    const bool anyOk = SetupMountMovementAbilityFeatureHooks();
-    WriteLogFmt("[FeatureSwitch] runtime-dependent hook refresh any=%d",
+    bool ok = true;
+    ok = SetupMovementAbilityFeatureHooks() && ok;
+    ok = SetupIndependentBuffLocalRuntimeHooks() && ok;
+    ok = SetupUiObservationRuntimeHooks() && ok;
+    ok = SetupMountedRuntimeFeatureHooks() && ok;
+    ok = SetupPassiveEffectFeatureHooks() && ok;
+    WriteLogFmt("[FeatureSwitch] runtime-dependent hook refresh ok=%d",
+        ok ? 1 : 0);
+}
+
+static bool SetupMovementAbilityFeatureHooks()
+{
+    const bool enableMountMovementAbilityRedHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::MountMovementAbilityRedHooks);
+    const bool enableGlobalMovementSetterProtectionHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::GlobalMovementSetterProtectionHooks);
+    const bool enableGlobalMovementOutputClampHook =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::GlobalMovementOutputClampHook);
+
+    if (!enableMountMovementAbilityRedHooks &&
+        !enableGlobalMovementSetterProtectionHooks &&
+        !enableGlobalMovementOutputClampHook)
+    {
+        WriteLog("[MovementFeatureHooks] all movement ability hooks disabled");
+        return true;
+    }
+
+    return SetupMountMovementAbilityFeatureHooks();
+}
+
+static bool SetupUiObservationRuntimeHooks()
+{
+    const bool enableSceneFadeObservationHooks = EnableSceneFadeObservationHooks();
+    const bool enableConfiguredSurfaceDrawObservationHook =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreSurfaceDrawObservationHook);
+    const bool enableConfiguredNativeCursorStateHook =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreNativeCursorStateHook);
+
+    bool anyRequested = false;
+    bool anyOk = false;
+
+    if (enableSceneFadeObservationHooks && enableConfiguredSurfaceDrawObservationHook)
+    {
+        anyRequested = true;
+        if (SetupSurfaceDrawImageObservationHook())
+            anyOk = true;
+        else
+            WriteLog("[ObservedSceneFade] surface draw observation hook install failed");
+    }
+    else if (enableSceneFadeObservationHooks)
+    {
+        WriteLog("[ObservedSceneFade] hook disabled by feature switch");
+    }
+    else
+    {
+        WriteLog("[ObservedSceneFade] hook disabled: fade sync retired");
+    }
+
+    if (enableConfiguredNativeCursorStateHook)
+    {
+        anyRequested = true;
+        if (SetupNativeCursorStateHook())
+            anyOk = true;
+        else
+            WriteLog("[ObservedCursorState] 5F3EC0 hook install failed");
+    }
+    else
+    {
+        WriteLog("[ObservedCursorState] hook disabled by feature switch");
+    }
+
+    if (!anyRequested)
+        return true;
+
+    return anyOk;
+}
+
+static bool SetupIndependentBuffLocalRuntimeHooks()
+{
+    const bool enableAbilityRedObservationHooks = EnableAbilityRedObservationHooks();
+    const bool enableConfiguredLocalPotentialReadHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreLocalPotentialReadHooks);
+    const bool enableConfiguredLocalPotentialDisplayHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreLocalPotentialDisplayHooks);
+    const bool enableConfiguredAbilityRedObservationHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreAbilityRedObservationHooks);
+    const bool enableConfiguredStatusBarBuffSlotHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CoreStatusBarBuffSlotHooks);
+    const bool needsLocalPotentialHooks = SkillOverlayBridgeNeedsLocalIndependentPotentialHooks();
+    const bool needsLocalPotentialDisplayHooks = SkillOverlayBridgeNeedsLocalIndependentPotentialDisplayHooks();
+    const bool needsStatusBarBuffSlotHooks = SkillOverlayBridgeNeedsStatusBarBuffSlotHooks();
+
+    bool anyRequested = false;
+    bool anyOk = false;
+
+    if (enableConfiguredLocalPotentialReadHooks && needsLocalPotentialHooks)
+    {
+        anyRequested = true;
+        if (SetupLocalIndependentPotentialPrimaryFlatStatHook())
+            anyOk = true;
+        if (SetupLocalIndependentPotentialPrimaryPercentStatHook())
+            anyOk = true;
+        if (SetupLocalIndependentPotentialFlatStatHook())
+            anyOk = true;
+    }
+    else if (!enableConfiguredLocalPotentialReadHooks)
+    {
+        WriteLog("[IndependentBuffLocal] skip local read-point hooks: disabled by feature switch");
+    }
+    else
+    {
+        WriteLog("[IndependentBuffLocal] skip local read-point hooks: no configured actual local potential lane");
+    }
+
+    if (enableConfiguredLocalPotentialDisplayHooks && needsLocalPotentialDisplayHooks)
+    {
+        anyRequested = true;
+        if (SetupAbilityRedDiff84C470PreSubHook())
+            anyOk = true;
+        if (SetupAbilityRedAdditionalDiffHooks())
+            anyOk = true;
+        if (SetupAbilityRedPositiveStyleHooks())
+            anyOk = true;
+        if (SetupAbilityRedBakeWriteHooks())
+            anyOk = true;
+        if (SetupAbilityRedBake198Hooks())
+            anyOk = true;
+        if (SetupAbilityRedFinalValueHooks())
+            anyOk = true;
+        if (SetupPotentialTextDisplayHook())
+            anyOk = true;
+        else
+            WriteLog("[PotentialTextHook] display text hook install failed");
+    }
+    else if (!enableConfiguredLocalPotentialDisplayHooks)
+    {
+        WriteLog("[AbilityRedDisplay] skip display-sync hooks: disabled by feature switch");
+        WriteLog("[PotentialTextHook] display text hook skipped: disabled by feature switch");
+    }
+    else
+    {
+        WriteLog("[AbilityRedDisplay] skip display-sync hooks: no configured local display lane");
+        WriteLog("[PotentialTextHook] display text hook skipped: no configured local display lane");
+    }
+
+    if (enableAbilityRedObservationHooks &&
+        enableConfiguredAbilityRedObservationHooks &&
+        enableConfiguredLocalPotentialDisplayHooks &&
+        needsLocalPotentialDisplayHooks)
+    {
+        anyRequested = true;
+        if (SetupLocalIndependentPotentialDisplayFunctionHooks())
+            anyOk = true;
+        if (SetupAbilityRedHashContainerHooks())
+            anyOk = true;
+        if (SetupAbilityRedExtendedAggregateHook())
+            anyOk = true;
+        if (SetupAbilityRedSiblingCalcHooks())
+            anyOk = true;
+        if (SetupAbilityRedDisplayCandidateHook())
+            anyOk = true;
+        if (SetupAbilityRedDisplayCallsiteHook())
+            anyOk = true;
+        if (SetupAbilityRedLevelReadHook())
+            anyOk = true;
+        if (SetupAbilityRedSkillWriteHooks())
+            anyOk = true;
+    }
+    else if (enableAbilityRedObservationHooks && !enableConfiguredAbilityRedObservationHooks)
+    {
+        WriteLog("[AbilityRedObserve] pure observation hooks skipped: disabled by feature switch");
+    }
+    else if (enableAbilityRedObservationHooks)
+    {
+        WriteLog("[AbilityRedObserve] pure observation hooks skipped: no configured local display lane");
+    }
+    else
+    {
+        WriteLog("[AbilityRedObserve] pure observation hooks disabled");
+    }
+
+    if (enableConfiguredStatusBarBuffSlotHooks && needsStatusBarBuffSlotHooks)
+    {
+        anyRequested = true;
+        if (SetupStatusBarBuffSlotHooks())
+            anyOk = true;
+        else
+            WriteLog("[StatusBarBuffSlot] slot refresh hook install failed");
+    }
+    else if (!enableConfiguredStatusBarBuffSlotHooks)
+    {
+        WriteLog("[StatusBarBuffSlot] hook install skipped: disabled by feature switch");
+    }
+    else
+    {
+        WriteLog("[StatusBarBuffSlot] hook install skipped: no configured native/overlay independent buff display");
+    }
+
+    WriteLogFmt("[RuntimeLocal] independent buff local hooks active=%d mode=readpoint_display_status",
         anyOk ? 1 : 0);
+
+    if (!anyRequested)
+        return true;
+
+    return anyOk;
 }
 
 static bool SetupPacketHook()
 {
     ssw::runtime::SetFeatureSwitchReloadCallback(RefreshRuntimeFeatureHooksAfterFeatureSwitchReload);
 
+    const bool enableCorePacketHooks =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::CorePacketHooks);
+    SkillOverlayBridgeSetResetPreviewReceiveHookReady(false);
+
+    if (!enableCorePacketHooks)
+    {
+        WriteLog("[PacketHook] disabled by feature switch");
+        return true;
+    }
+
     bool sendHookOk = false;
     bool recvHookOk = false;
-    const bool enableAbilityRedObservationHooks = EnableAbilityRedObservationHooks();
-    const bool enableSceneFadeObservationHooks = EnableSceneFadeObservationHooks();
-    SkillOverlayBridgeSetResetPreviewReceiveHookReady(false);
 
     BYTE *pTarget = FollowJmpChain((void *)ADDR_43D94D);
     if (!pTarget)
@@ -152,77 +361,7 @@ static bool SetupPacketHook()
         }
     }
 
-    bool localHookAnyOk = false;
-    if (SetupLocalIndependentPotentialPrimaryFlatStatHook())
-        localHookAnyOk = true;
-    if (SetupLocalIndependentPotentialPrimaryPercentStatHook())
-        localHookAnyOk = true;
-    if (SetupLocalIndependentPotentialFlatStatHook())
-        localHookAnyOk = true;
-    if (SetupMountMovementAbilityFeatureHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedDiff84C470PreSubHook())
-        localHookAnyOk = true;
-    if (SetupAbilityRedAdditionalDiffHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedPositiveStyleHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedBakeWriteHooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedBake198Hooks())
-        localHookAnyOk = true;
-    if (SetupAbilityRedFinalValueHooks())
-        localHookAnyOk = true;
-    if (enableAbilityRedObservationHooks)
-    {
-        if (SetupLocalIndependentPotentialDisplayFunctionHooks())
-            localHookAnyOk = true;
-        if (SetupAbilityRedHashContainerHooks())
-            localHookAnyOk = true;
-        if (SetupAbilityRedExtendedAggregateHook())
-            localHookAnyOk = true;
-        if (SetupAbilityRedSiblingCalcHooks())
-            localHookAnyOk = true;
-        if (SetupAbilityRedDisplayCandidateHook())
-            localHookAnyOk = true;
-        if (SetupAbilityRedDisplayCallsiteHook())
-            localHookAnyOk = true;
-        if (SetupAbilityRedLevelReadHook())
-            localHookAnyOk = true;
-        if (SetupAbilityRedSkillWriteHooks())
-            localHookAnyOk = true;
-    }
-    else
-    {
-        WriteLog("[AbilityRedObserve] pure observation hooks disabled");
-    }
-
-    WriteLogFmt("[IndependentBuffLocal] local read-point hooks active=%d mode=recv_plus_readpoint",
-        localHookAnyOk ? 1 : 0);
-    if (!SetupPotentialTextDisplayHook())
-        WriteLog("[PotentialTextHook] display text hook install failed");
-    if (enableSceneFadeObservationHooks)
-    {
-        if (!SetupSurfaceDrawImageObservationHook())
-            WriteLog("[ObservedSceneFade] surface draw observation hook install failed");
-    }
-    else
-    {
-        WriteLog("[ObservedSceneFade] hook disabled: fade sync retired");
-    }
-    if (!SetupNativeCursorStateHook())
-        WriteLog("[ObservedCursorState] 5F3EC0 hook install failed");
-
     SkillOverlayBridgeSetResetPreviewReceiveHookReady(sendHookOk && recvHookOk);
-    if (SkillOverlayBridgeNeedsStatusBarBuffSlotHooks())
-    {
-        if (!SetupStatusBarBuffSlotHooks())
-            WriteLog("[StatusBarBuffSlot] slot refresh hook install failed");
-    }
-    else
-    {
-        WriteLog("[StatusBarBuffSlot] hook install skipped: no configured native/overlay independent buff display");
-    }
     return sendHookOk && recvHookOk;
 }
 

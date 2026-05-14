@@ -1358,6 +1358,11 @@ static int MaybePreserveMovementSetterHighValue(
     volatile LONG *lastHighCaller,
     volatile LONG *logBudget)
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::FeatureMountMovementEnabled))
+    {
+        return value;
+    }
+
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     const DWORD nowTick = GetTickCount();
     const DWORD thisAddr = (DWORD)(uintptr_t)thisPtr;
@@ -1473,6 +1478,13 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     if (!a8 || SafeIsBadWritePtr(a8, sizeof(int)))
         return result;
 
+    const bool enablePlayerMovement =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::FeaturePlayerMovementEnabled);
+    const bool enableMountMovement =
+        ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::FeatureMountMovementEnabled);
+    if (!enablePlayerMovement && !enableMountMovement)
+        return result;
+
     int contextualPlayerMountItemId = 0;
     const bool contextualPlayerMountReadable =
         TryReadMountItemIdFromPlayerObjectRaw(
@@ -1507,6 +1519,7 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     }
     MountedMovementOverride mountedRawOverride = {};
     const bool shouldRaiseFromMountedRaw =
+        enableMountMovement &&
         hasMountedRawSample &&
         SkillOverlayBridgeResolveMountedMovementOverride(
             mountedRawMountItemId,
@@ -1517,8 +1530,12 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     DWORD *baseExtended = reinterpret_cast<DWORD *>(0x00F6D200);
     int decodedSpeed = 0;
     int decodedJump = 0;
-    const bool hasSpeed = ReadEncryptedTripletValue(baseExtended, 159, &decodedSpeed);
-    const bool hasJump = ReadEncryptedTripletValue(baseExtended, 171, &decodedJump);
+    const bool hasSpeed =
+        enablePlayerMovement &&
+        ReadEncryptedTripletValue(baseExtended, 159, &decodedSpeed);
+    const bool hasJump =
+        enablePlayerMovement &&
+        ReadEncryptedTripletValue(baseExtended, 171, &decodedJump);
     if ((!hasSpeed || decodedSpeed <= kMovementSpeedProtectHighValueThreshold) &&
         (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold) &&
         (!shouldRaiseFromMountedRaw ||

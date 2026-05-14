@@ -170,6 +170,41 @@ __declspec(naked) static void hkSkillReleaseClassifierB2F370Naked()
     }
 }
 
+static void __cdecl LogEchoOfHeroPostReleaseNullContextGuard(int skillId)
+{
+    static LONG s_echoPostReleaseNullContextLogBudget = 24;
+    if (InterlockedDecrement(&s_echoPostReleaseNullContextLogBudget) >= 0)
+    {
+        WriteLogFmt(
+            "[SkillReleaseHook] B3356D echo null-context skip skillId=%d",
+            skillId);
+    }
+}
+
+__declspec(naked) static void hkEchoOfHeroPostReleaseContextGuardB3355CNaked()
+{
+    __asm {
+        mov ecx, [esp + 64h]
+        add esp, 10h
+
+        cmp esi, 3EDh
+        jne continue_original
+        test ecx, ecx
+        jne continue_original
+
+        mov dword ptr [ebx + 4DE0h], 1
+        pushad
+        push esi
+        call LogEchoOfHeroPostReleaseNullContextGuard
+        add esp, 4
+        popad
+        jmp dword ptr [g_EchoOfHeroPostReleaseSkipB33587]
+
+    continue_original:
+        jmp dword ptr [g_EchoOfHeroPostReleaseContinueB33563]
+    }
+}
+
 static void __fastcall hkSkillPresentationDispatch(void *thisPtr, void * /*edxUnused*/, int *skillData, int a3, int a4, int a5, int a6, int a7)
 {
     int originalSkillId = 0;

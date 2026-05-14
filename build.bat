@@ -55,6 +55,7 @@ if errorlevel 1 (
     echo src\runtime\feature_switches.cpp
     echo src\runtime\init_pipeline.cpp
     echo src\runtime\cleanup_pipeline.cpp
+    echo src\runtime\crash_capture.cpp
     echo src\util\runtime_paths.cpp
     echo src\util\skill_config_package.cpp
     echo src\skill\skill_local_data.cpp
@@ -102,6 +103,7 @@ if errorlevel 1 (
     echo build\Debug\feature_switches.obj
     echo build\Debug\init_pipeline.obj
     echo build\Debug\cleanup_pipeline.obj
+    echo build\Debug\crash_capture.obj
     echo build\Debug\runtime_paths.obj
     echo build\Debug\skill_config_package.obj
     echo build\Debug\skill_local_data.obj

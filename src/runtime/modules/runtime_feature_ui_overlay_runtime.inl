@@ -36,7 +36,7 @@ static void UpdateSuperCWnd()
             SuperD3D8OverlaySetAnchor(g_PanelDrawX, g_PanelDrawY);
         else
             SuperImGuiOverlaySetAnchor(g_PanelDrawX, g_PanelDrawY);
-        if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 200)
+        if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 12)
         {
             int swComX = 0, swComY = 0, swVtX = 0, swVtY = 0;
             bool hasCom = GetSkillWndComPos(g_SkillWndThis, &swComX, &swComY);
@@ -84,7 +84,7 @@ static void UpdateSuperCWnd()
         }
     }
 
-    if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 200)
+    if ((g_PanelDrawX != s_lastPanelX || g_PanelDrawY != s_lastPanelY) && g_UpdatePosLogCount < 12)
     {
         int swComX = 0, swComY = 0, swVtX = 0, swVtY = 0;
         bool hasCom = GetSkillWndComPos(g_SkillWndThis, &swComX, &swComY);
@@ -389,6 +389,59 @@ static tResetEx g_LiveDeviceResetEx = nullptr;
 static void **g_LiveDeviceVTable9 = nullptr;
 static void **g_LiveDeviceVTable9Ex = nullptr;
 
+static void UpdateAndRenderD3D9ImguiOverlay(IDirect3DDevice9 *pDevice)
+{
+    const bool hasIndependentBuffOverlay = SkillOverlayBridgeHasIndependentBuffOverlayEntries();
+    const bool overlayRuntimeReady = (g_Ready || hasIndependentBuffOverlay) && g_GameHwnd && pDevice;
+    if (overlayRuntimeReady && !SuperImGuiOverlayIsInitialized() && g_GameHwnd && pDevice)
+    {
+        if (!SuperImGuiOverlayEnsureInitialized(g_GameHwnd, pDevice, 1.0f, IMGUI_PANEL_ASSET_PATH))
+        {
+            static DWORD s_lastOverlayInitFailLogTick = 0;
+            DWORD now = GetTickCount();
+            if (now - s_lastOverlayInitFailLogTick > 1000)
+            {
+                WriteLogFmt("[ImGuiOverlay] ensure init failed in EndScene device=0x%08X hwnd=0x%08X",
+                            (DWORD)(uintptr_t)pDevice, (DWORD)(uintptr_t)g_GameHwnd);
+                s_lastOverlayInitFailLogTick = now;
+            }
+        }
+    }
+
+    if (SuperImGuiOverlayIsInitialized())
+    {
+        RECT superBtnRect = {};
+        const bool hasSuperBtnRect = GetSuperButtonBaseRectForD3D(&superBtnRect);
+        SuperImGuiOverlaySetPanelExpanded(g_SuperExpanded);
+        SuperImGuiOverlaySetSuperButtonVisible(hasSuperBtnRect);
+        SuperImGuiOverlaySetSuperButtonRect(hasSuperBtnRect ? &superBtnRect : nullptr);
+    }
+
+    if (overlayRuntimeReady && SuperImGuiOverlayIsInitialized())
+    {
+        if (g_SuperExpanded)
+            UpdateSuperCWnd();
+        SuperImGuiOverlaySetVisible(true);
+        SuperImGuiOverlayRender(pDevice);
+    }
+    else if (SuperImGuiOverlayIsInitialized())
+    {
+        SuperImGuiOverlaySetVisible(false);
+    }
+
+    const bool suppressMouse = SuperImGuiOverlayShouldSuppressGameMouse();
+    if (Win32InputSpoofIsInstalled())
+    {
+        Win32InputSpoofSetSuppressMouse(suppressMouse);
+    }
+    UpdateGameMouseSuppressionFallback(suppressMouse);
+    if (g_LastOverlaySuppressMouse && !suppressMouse)
+    {
+        RefreshGameCursorImmediately();
+    }
+    g_LastOverlaySuppressMouse = suppressMouse;
+}
+
 // Forward declarations for CreateDevice interception strategy
 static HRESULT __stdcall hkEndScene(IDirect3DDevice9 *pDevice);
 static bool PatchLiveDeviceVTableEntry(void **vtable, int index, void *hookFunc, void **outOriginal);
@@ -621,6 +674,15 @@ static HRESULT __stdcall hkEndScene(IDirect3DDevice9 *pDevice)
         EnsureLiveDeviceResetHooks(pDevice);
     }
 
+    if (UseImguiOverlayPanelRuntime())
+    {
+        if (!g_TexturesLoaded)
+        {
+            LoadAllTextures(pDevice);
+        }
+        UpdateAndRenderD3D9ImguiOverlay(pDevice);
+    }
+
     return oEndScene(pDevice);
 }
 
@@ -657,7 +719,11 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
         WriteLog("[Present] Ready");
     }
 
-    if (g_Ready && g_SkillWndThis && !g_NativeBtnCreated)
+    if (ShouldUseVirtualSuperButtonRuntime())
+    {
+        EnsureVirtualSuperButtonArmed("present");
+    }
+    else if (g_Ready && g_SkillWndThis && !g_NativeBtnCreated)
     {
         static DWORD s_lastPresentButtonRetryTick = 0;
         DWORD now = GetTickCount();
@@ -674,55 +740,6 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
 
     if (UseImguiOverlayPanelRuntime())
     {
-        const bool hasIndependentBuffOverlay = SkillOverlayBridgeHasIndependentBuffOverlayEntries();
-        const bool overlayRuntimeReady = (g_Ready || hasIndependentBuffOverlay) && g_GameHwnd && pDevice;
-        if (overlayRuntimeReady && !SuperImGuiOverlayIsInitialized() && g_GameHwnd && pDevice)
-        {
-            if (!SuperImGuiOverlayEnsureInitialized(g_GameHwnd, pDevice, 1.0f, IMGUI_PANEL_ASSET_PATH))
-            {
-                static DWORD s_lastOverlayInitFailLogTick = 0;
-                DWORD now = GetTickCount();
-                if (now - s_lastOverlayInitFailLogTick > 1000)
-                {
-                    WriteLogFmt("[ImGuiOverlay] ensure init failed in Present device=0x%08X hwnd=0x%08X",
-                                (DWORD)(uintptr_t)pDevice, (DWORD)(uintptr_t)g_GameHwnd);
-                    s_lastOverlayInitFailLogTick = now;
-                }
-            }
-        }
-
-        if (SuperImGuiOverlayIsInitialized())
-        {
-            RECT superBtnRect = {};
-            const bool hasSuperBtnRect = GetSuperButtonBaseRectForD3D(&superBtnRect);
-            SuperImGuiOverlaySetPanelExpanded(g_SuperExpanded);
-            SuperImGuiOverlaySetSuperButtonVisible(hasSuperBtnRect);
-            SuperImGuiOverlaySetSuperButtonRect(hasSuperBtnRect ? &superBtnRect : nullptr);
-        }
-
-        if (overlayRuntimeReady && SuperImGuiOverlayIsInitialized())
-        {
-            if (g_SuperExpanded)
-                UpdateSuperCWnd();
-            SuperImGuiOverlaySetVisible(true);
-            SuperImGuiOverlayRender(pDevice);
-        }
-        else if (SuperImGuiOverlayIsInitialized())
-        {
-            SuperImGuiOverlaySetVisible(false);
-        }
-
-        const bool suppressMouse = SuperImGuiOverlayShouldSuppressGameMouse();
-        if (Win32InputSpoofIsInstalled())
-        {
-            Win32InputSpoofSetSuppressMouse(suppressMouse);
-        }
-        UpdateGameMouseSuppressionFallback(suppressMouse);
-        if (g_LastOverlaySuppressMouse && !suppressMouse)
-        {
-            RefreshGameCursorImmediately();
-        }
-        g_LastOverlaySuppressMouse = suppressMouse;
         HRESULT presentHr = fnOrigPresent ? fnOrigPresent(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion) : D3D_OK;
         SkillOverlayBridgeBeginFrameObservation();
         return presentHr;
@@ -795,6 +812,12 @@ static HRESULT __stdcall hkPresent(IDirect3DDevice9 *pDevice,
 // ============================================================================
 static bool SetupD3D9Hook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiOverlayHooks))
+    {
+        WriteLog("[D3D9] disabled by feature switch");
+        return true;
+    }
+
     WriteLog("[D3D9] Setup...");
 
     WNDCLASSEXA wc = {sizeof(WNDCLASSEX), CS_CLASSDC, DefWindowProc, 0L, 0L,
@@ -1159,7 +1182,11 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
         }
 
         d3d8Stage = "retry_native_button";
-        if (g_Ready && g_SkillWndThis && !g_NativeBtnCreated)
+        if (ShouldUseVirtualSuperButtonRuntime())
+        {
+            EnsureVirtualSuperButtonArmed("d3d8_present");
+        }
+        else if (g_Ready && g_SkillWndThis && !g_NativeBtnCreated)
         {
             static DWORD s_lastD3D8PresentButtonRetryTick = 0;
             DWORD now = GetTickCount();
@@ -1188,7 +1215,7 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
             bool hasOverlaySuperBtnRect = false;
 
             d3d8Stage = "ensure_d3d8_textures";
-            if (g_Ready && g_NativeBtnCreated)
+            if (IsSuperButtonSelfRenderReady())
                 EnsureD3D8SuperTexturesLoaded(pDevice8);
 
             d3d8Stage = "overlay_init";
@@ -1223,9 +1250,10 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
                 if (now - s_lastD3D8OverlayStateLogTick > 1000)
                 {
                     s_lastD3D8OverlayStateLogTick = now;
-                    WriteLogFmt("[D3D8OverlayState] ready=%d btn=%d expanded=%d activation=%d init=%d hasRect=%d rect=(%ld,%ld,%ld,%ld) hwnd=0x%08X device=0x%08X indep=%d",
+                    WriteLogFmt("[D3D8OverlayState] ready=%d btnReady=%d btnObj=%d expanded=%d activation=%d init=%d hasRect=%d rect=(%ld,%ld,%ld,%ld) hwnd=0x%08X device=0x%08X indep=%d",
                                 g_Ready ? 1 : 0,
-                                g_NativeBtnCreated ? 1 : 0,
+                                IsSuperButtonSelfRenderReady() ? 1 : 0,
+                                g_SuperBtnObj ? 1 : 0,
                                 g_SuperExpanded ? 1 : 0,
                                 overlayActivationReady ? 1 : 0,
                                 overlayInitialized ? 1 : 0,
@@ -1253,17 +1281,18 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
 
             // DX8 下如果 overlay 没有真正接管显示，就退回到已有的 D3D8 直绘按钮路径，
             // 避免 native 按钮被隐藏后完全不可见。
-            if (g_Ready && g_NativeBtnCreated && !overlayInitialized)
+            if (IsSuperButtonSelfRenderReady() && !overlayInitialized)
             {
                 static DWORD s_lastD3D8FallbackSuperBtnLogTick = 0;
                 DWORD now = GetTickCount();
                 if (now - s_lastD3D8FallbackSuperBtnLogTick > 1000)
                 {
                     s_lastD3D8FallbackSuperBtnLogTick = now;
-                    WriteLogFmt("[D3D8FallbackBtn] overlayInit=%d ready=%d nativeBtn=%d hwnd=0x%08X device=0x%08X",
+                    WriteLogFmt("[D3D8FallbackBtn] overlayInit=%d ready=%d btnReady=%d btnObj=%d hwnd=0x%08X device=0x%08X",
                                 overlayInitialized ? 1 : 0,
                                 g_Ready ? 1 : 0,
-                                g_NativeBtnCreated ? 1 : 0,
+                                IsSuperButtonSelfRenderReady() ? 1 : 0,
+                                g_SuperBtnObj ? 1 : 0,
                                 (DWORD)(uintptr_t)g_D3D8GameHwnd,
                                 (DWORD)(uintptr_t)pDevice8);
                 }
@@ -1289,13 +1318,13 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
             if (SuperD3D8OverlayIsInitialized())
                 SuperD3D8OverlaySetVisible(false);
 
-            if (g_Ready && g_NativeBtnCreated)
+            if (IsSuperButtonSelfRenderReady())
                 EnsureD3D8SuperTexturesLoaded(pDevice8);
 
             if (g_SkillWndThis && g_SuperExpanded)
                 UpdateSuperCWnd();
 
-            if (g_Ready && g_NativeBtnCreated)
+            if (IsSuperButtonSelfRenderReady())
             {
                 DrawSuperButtonTextureInPresentD3D8(pDevice8);
                 DrawSuperButtonCursorInPresentD3D8(pDevice8);
@@ -1318,9 +1347,10 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
             if (now - s_lastD3D8NoImguiLogTick > 1000)
             {
                 s_lastD3D8NoImguiLogTick = now;
-                WriteLogFmt("[D3D8NoImGuiPresent] ready=%d btn=%d expanded=%d tex=%d suppress=%d skillWnd=0x%08X panel=(%d,%d)",
+                WriteLogFmt("[D3D8NoImGuiPresent] ready=%d btnReady=%d btnObj=%d expanded=%d tex=%d suppress=%d skillWnd=0x%08X panel=(%d,%d)",
                             g_Ready ? 1 : 0,
-                            g_NativeBtnCreated ? 1 : 0,
+                            IsSuperButtonSelfRenderReady() ? 1 : 0,
+                            g_SuperBtnObj ? 1 : 0,
                             g_SuperExpanded ? 1 : 0,
                             g_D3D8TexturesLoaded ? 1 : 0,
                             suppressMouse ? 1 : 0,
@@ -1409,6 +1439,12 @@ static HRESULT __stdcall hkD3D8Reset(void *pDevice8, void *pPresentationParamete
 // 安装 D3D8 hooks
 static bool SetupD3D8Hook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiOverlayHooks))
+    {
+        WriteLog("[D3D8] disabled by feature switch");
+        return true;
+    }
+
     WriteLog("[D3D8] Setup...");
 
     HMODULE hD3D8 = ::GetModuleHandleA("d3d8.dll");
@@ -1614,6 +1650,12 @@ static bool SetupD3D8Hook()
 // ============================================================================
 static bool SetupSkillWndHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiSkillWindowCoreHooks))
+    {
+        WriteLog("[SkillHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndInitChildren = (tSkillWndInitChildren)InstallInlineHook(
         ADDR_9E17D0, (void *)hkSkillWndInitChildren);
     if (!oSkillWndInitChildren)
@@ -1630,6 +1672,12 @@ static bool SetupSkillWndHook()
 // ============================================================================
 static bool SetupMsgHook()
 {
+    if (!ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::UiMsgHook))
+    {
+        WriteLog("[MsgHook] disabled by feature switch");
+        return true;
+    }
+
     oSkillWndMsg = (tSkillWndMsg)InstallInlineHook(
         ADDR_9DDB30, (void *)hkSkillWndMsgNaked);
     if (!oSkillWndMsg)
