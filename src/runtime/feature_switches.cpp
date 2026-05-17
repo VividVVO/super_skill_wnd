@@ -275,17 +275,27 @@ namespace
 
         case FeatureSwitchId::MountedMovementOverride:
         case FeatureSwitchId::MountedSoaringOverride:
-        case FeatureSwitchId::MountMovementAbilityRedHooks:
         case FeatureSwitchId::MountMovementObservationHooks:
         case FeatureSwitchId::MountedFlightPhysicsSpeedHooks:
         case FeatureSwitchId::MountMovementCapPatches:
             return locallyAllowed &&
                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled);
 
+        case FeatureSwitchId::MountMovementAbilityRedHooks:
+            return locallyAllowed &&
+                   (IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeaturePlayerMovementEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled));
+
         case FeatureSwitchId::GlobalMovementSetterProtectionHooks:
-        case FeatureSwitchId::GlobalMovementOutputClampHook:
             return locallyAllowed &&
                    (IsFeatureEnabledResolved(FeatureSwitchId::FeaturePlayerMovementEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled));
+
+        case FeatureSwitchId::GlobalMovementOutputClampHook:
+            return locallyAllowed &&
+                   (IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled) ||
+                    IsFeatureEnabledResolved(FeatureSwitchId::FeaturePlayerMovementEnabled) ||
                     IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountMovementEnabled));
 
         default:

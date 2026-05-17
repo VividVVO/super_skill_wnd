@@ -182,6 +182,11 @@ namespace
         return ssw::path::FileExists(ssw::path::Combine(directory, L"super_skills.json"));
     }
 
+    bool ShouldPreferPackageForDirectory(const std::wstring& skillConfigDir)
+    {
+        return PackageFileExists(skillConfigDir);
+    }
+
     bool ReadBinaryFilePhysical(const std::wstring& path, std::vector<unsigned char>& outBytes)
     {
         outBytes.clear();
@@ -971,9 +976,6 @@ namespace
 
     bool LoadPackageForDirectory(const std::wstring& skillConfigDir)
     {
-        if (HasPlainSkillConfigMarker(skillConfigDir))
-            return false;
-
         const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
         const std::wstring packagePath = ssw::path::Combine(directory, kPackageFileName);
         WIN32_FILE_ATTRIBUTE_DATA packageProbeData = {};
@@ -1289,15 +1291,14 @@ void InvalidateSkillConfigPackage()
 bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<unsigned char>& outBytes)
 {
     const std::wstring directory = ssw::path::Parent(absolutePath);
-    if (!directory.empty() && HasPlainSkillConfigMarker(directory))
+    const std::wstring relativePath =
+        directory.empty() ? std::wstring() : GetRelativePath(directory, absolutePath);
+    const bool packagePreferred =
+        !directory.empty() && ShouldPreferPackageForDirectory(directory);
+
+    if (packagePreferred &&
+        _wcsicmp(relativePath.c_str(), kPackageFileName) == 0)
     {
-        const std::wstring relativePath = GetRelativePath(directory, absolutePath);
-        if (_wcsicmp(relativePath.c_str(), kPackageFileName) == 0)
-        {
-            WriteLogFmt("[SkillPack] skip package file under plain mode path=%s",
-                WideToUtf8String(absolutePath).c_str());
-            return false;
-        }
         return ReadBinaryFilePhysical(absolutePath, outBytes);
     }
 
@@ -1307,9 +1308,8 @@ bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<
     if (!directory.empty() && IsRuntimePasswordPendingForDirectory(directory))
         return false;
 
-    if (!directory.empty() && DoesSkillConfigPackageExist(directory))
+    if (packagePreferred)
     {
-        const std::wstring relativePath = GetRelativePath(directory, absolutePath);
         if (IsPackageCoveredRelativePath(relativePath))
         {
             WriteLogFmt("[SkillPack] WARN package-owned read failed path=%s relative=%ls",
@@ -1352,7 +1352,27 @@ bool TryEnumerateSkillConfigPackageEntries(const std::wstring& skillConfigDir, s
 
 bool DoesSkillConfigPackageExist(const std::wstring& skillConfigDir)
 {
-    return PackageFileExists(skillConfigDir) && !HasPlainSkillConfigMarker(skillConfigDir);
+    return PackageFileExists(skillConfigDir);
+}
+
+bool QuerySkillConfigRuntimePasswordProbe(const std::wstring& skillConfigDir, SkillConfigRuntimePasswordProbe& outProbe)
+{
+    outProbe = SkillConfigRuntimePasswordProbe{};
+
+    const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
+    if (directory.empty())
+        return false;
+
+    outProbe.packageFileExists = PackageFileExists(directory);
+    outProbe.plainConfigPresent = HasPlainSkillConfigMarker(directory);
+    if (!outProbe.packageFileExists)
+        return false;
+
+    const PasswordCandidateSet passwordCandidates = BuildPasswordCandidateSet();
+    outProbe.runtimePasswordAddress = passwordCandidates.runtimePasswordAddress;
+    outProbe.runtimePasswordRaw = passwordCandidates.runtimePasswordRaw;
+    outProbe.runtimePasswordPending = passwordCandidates.runtimePasswordPending;
+    return true;
 }
 
 bool IsSkillConfigPackageRuntimePasswordPending(const std::wstring& skillConfigDir)

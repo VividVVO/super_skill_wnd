@@ -10,7 +10,7 @@ static bool SetupMountMovementAbilityFeatureHooks()
     }
     else
     {
-        WriteLog("[AbilityRedMaster] 856C60 hook disabled for mount movement rollback");
+        WriteLog("[AbilityRedMaster] 856C60 hook disabled for player/mount movement rollback");
     }
 
     if (kEnableGlobalMovementSetterProtectionHooks)

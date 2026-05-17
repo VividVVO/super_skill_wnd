@@ -1517,6 +1517,17 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
         mountedRawSpeed = 0;
         mountedRawJump = 0;
     }
+
+    int currentUserMountItemId = 0;
+    const bool currentUserMountReadable =
+        TryReadCurrentUserMountItemId(&currentUserMountItemId);
+    const bool shouldSuppressPlayerIndependentMovement =
+        !enablePlayerMovement &&
+        SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() &&
+        ((contextualPlayerMountReadable && contextualPlayerMountItemId <= 0) ||
+         (!contextualPlayerMountReadable && currentUserMountReadable && currentUserMountItemId <= 0) ||
+         (!contextualPlayerMountReadable && !currentUserMountReadable && !hasMountedRawSample));
+
     MountedMovementOverride mountedRawOverride = {};
     const bool shouldRaiseFromMountedRaw =
         enableMountMovement &&
@@ -1536,14 +1547,6 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     const bool hasJump =
         enablePlayerMovement &&
         ReadEncryptedTripletValue(baseExtended, 171, &decodedJump);
-    if ((!hasSpeed || decodedSpeed <= kMovementSpeedProtectHighValueThreshold) &&
-        (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold) &&
-        (!shouldRaiseFromMountedRaw ||
-         (mountedRawSpeed <= kMovementSpeedProtectHighValueThreshold &&
-          mountedRawJump <= kMovementJumpProtectHighValueThreshold)))
-    {
-        return result;
-    }
 
     const int originalSpeedOut = *a8;
     int originalJumpOut = 0;
@@ -1556,6 +1559,58 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
         const int originalMetricOut = static_cast<int>(*a11);
         if (originalMetricOut > originalSpeedOut)
             metricExtra = originalMetricOut - originalSpeedOut;
+    }
+
+    if (shouldSuppressPlayerIndependentMovement)
+    {
+        int suppressedSpeedOut = originalSpeedOut;
+        int suppressedJumpOut = originalJumpOut;
+        if (suppressedSpeedOut > kMovementSpeedProtectHighValueThreshold)
+            suppressedSpeedOut = kMovementSpeedProtectHighValueThreshold;
+        if (a9 && !SafeIsBadWritePtr(a9, sizeof(int)) &&
+            suppressedJumpOut > kMovementJumpProtectHighValueThreshold)
+        {
+            suppressedJumpOut = kMovementJumpProtectHighValueThreshold;
+        }
+
+        if (suppressedSpeedOut != originalSpeedOut)
+        {
+            *a8 = suppressedSpeedOut;
+            if (a11 && !SafeIsBadWritePtr(a11, sizeof(DWORD)))
+                *a11 = static_cast<DWORD>(suppressedSpeedOut + metricExtra);
+        }
+        if (a9 && !SafeIsBadWritePtr(a9, sizeof(int)) &&
+            suppressedJumpOut != originalJumpOut)
+        {
+            *a9 = suppressedJumpOut;
+        }
+
+        if ((suppressedSpeedOut != originalSpeedOut || suppressedJumpOut != originalJumpOut) &&
+            InterlockedDecrement(&g_MovementOutputClampLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MoveClamp] B93B80 suppress player speed=%d->%d jump=%d->%d mountCtx=%d/%d userMount=%d/%d active=%d metricExtra=%d",
+                originalSpeedOut,
+                suppressedSpeedOut,
+                originalJumpOut,
+                suppressedJumpOut,
+                contextualPlayerMountItemId,
+                contextualPlayerMountReadable ? 1 : 0,
+                currentUserMountItemId,
+                currentUserMountReadable ? 1 : 0,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0,
+                metricExtra);
+        }
+        return result;
+    }
+
+    if ((!hasSpeed || decodedSpeed <= kMovementSpeedProtectHighValueThreshold) &&
+        (!hasJump || decodedJump <= kMovementJumpProtectHighValueThreshold) &&
+        (!shouldRaiseFromMountedRaw ||
+         (mountedRawSpeed <= kMovementSpeedProtectHighValueThreshold &&
+          mountedRawJump <= kMovementJumpProtectHighValueThreshold)))
+    {
+        return result;
     }
 
     int raisedSpeedOut = originalSpeedOut;
@@ -2860,12 +2915,18 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     int patchedWatkAfter = 0;
     int patchedMatkBefore = 0;
     int patchedMatkAfter = 0;
+    int patchedSpeedBefore = 0;
+    int patchedSpeedAfter = 0;
+    int patchedJumpBefore = 0;
+    int patchedJumpAfter = 0;
     bool patchedWatk = false;
     bool patchedMatk = false;
+    bool patchedSpeed = false;
+    bool patchedJump = false;
     if (thisPtr && SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
     {
         // Keep upstream display-prep observe-only, but patch the final aggregate object
-        // so attack-range consumers read the local display-only WATK/MATK deltas.
+        // so attack-range and movement consumers read local display-only deltas.
         const struct
         {
             size_t keyIndex;
@@ -2874,6 +2935,8 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
             int *afterValue;
             bool *applied;
         } targets[] = {
+            { 159, 0x30, &patchedSpeedBefore, &patchedSpeedAfter, &patchedSpeed },
+            { 171, 0x34, &patchedJumpBefore, &patchedJumpAfter, &patchedJump },
             { 57, 0x38, &patchedWatkBefore, &patchedWatkAfter, &patchedWatk },
             { 87, 0x3C, &patchedMatkBefore, &patchedMatkAfter, &patchedMatk },
         };
@@ -2889,7 +2952,14 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
             if (!ReadEncryptedTripletValue(tripletBase, targets[i].keyIndex, &currentValue))
                 continue;
 
-            const int targetValue = currentValue + delta;
+            int targetValue = currentValue + delta;
+            if (targets[i].deltaOffset == 0x30 || targets[i].deltaOffset == 0x34)
+            {
+                if (targetValue < 0)
+                    targetValue = 0;
+                if (targetValue > 9999)
+                    targetValue = 9999;
+            }
             if (currentValue == targetValue)
                 continue;
             if (!WriteEncryptedTripletValue(tripletBase, targets[i].keyIndex, targetValue))
@@ -2997,11 +3067,15 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
             movementBefore.currentJump, movementBefore.currentJumpOk ? 1 : 0,
             movementAfter.currentJump, movementAfter.currentJumpOk ? 1 : 0);
 
-        if (patchedWatk || patchedMatk)
+        if (patchedWatk || patchedMatk || patchedSpeed || patchedJump)
         {
             WriteLogFmt(
-                "[AbilityRedMasterPatch] 856C60 this=0x%08X watk=%d->%d matk=%d->%d active=%d",
+                "[AbilityRedMasterPatch] 856C60 this=0x%08X speed=%d->%d jump=%d->%d watk=%d->%d matk=%d->%d active=%d",
                 (DWORD)(uintptr_t)thisPtr,
+                patchedSpeedBefore,
+                patchedSpeedAfter,
+                patchedJumpBefore,
+                patchedJumpAfter,
                 patchedWatkBefore,
                 patchedWatkAfter,
                 patchedMatkBefore,

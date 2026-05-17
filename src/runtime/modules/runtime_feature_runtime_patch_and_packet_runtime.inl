@@ -186,18 +186,25 @@ static bool ApplyMountMovementCapPatches()
         ok = true;
     }
 
-    // Keep the lower bound (100) intact, but remove the final upper clamp.
-    static const BYTE kSpeedUpperClamp[] = {0x3B, 0xD7, 0x7C, 0x02, 0x8B, 0xD7};
-    if (PatchNopsIfExpected(ADDR_858D30, kSpeedUpperClamp, sizeof(kSpeedUpperClamp), "movement speed upper cap"))
-        ok = true;
+    if (ssw::runtime::IsFeatureEnabled(ssw::runtime::FeatureSwitchId::FeaturePlayerMovementEnabled))
+    {
+        // Keep the lower bound (100) intact, but remove the final upper clamp.
+        static const BYTE kSpeedUpperClamp[] = {0x3B, 0xD7, 0x7C, 0x02, 0x8B, 0xD7};
+        if (PatchNopsIfExpected(ADDR_858D30, kSpeedUpperClamp, sizeof(kSpeedUpperClamp), "movement speed upper cap"))
+            ok = true;
 
-    static const BYTE kJumpUpperCompare[] = {0x83, 0xF8, 0x7B};
-    if (PatchNopsIfExpected(ADDR_858D49, kJumpUpperCompare, sizeof(kJumpUpperCompare), "movement jump cap cmp"))
-        ok = true;
+        static const BYTE kJumpUpperCompare[] = {0x83, 0xF8, 0x7B};
+        if (PatchNopsIfExpected(ADDR_858D49, kJumpUpperCompare, sizeof(kJumpUpperCompare), "movement jump cap cmp"))
+            ok = true;
 
-    static const BYTE kJumpUpperClamp[] = {0x7C, 0x05, 0xBA, 0x7B, 0x00, 0x00, 0x00};
-    if (PatchNopsIfExpected(ADDR_858D4E, kJumpUpperClamp, sizeof(kJumpUpperClamp), "movement jump upper cap"))
-        ok = true;
+        static const BYTE kJumpUpperClamp[] = {0x7C, 0x05, 0xBA, 0x7B, 0x00, 0x00, 0x00};
+        if (PatchNopsIfExpected(ADDR_858D4E, kJumpUpperClamp, sizeof(kJumpUpperClamp), "movement jump upper cap"))
+            ok = true;
+    }
+    else
+    {
+        WriteLog("[RuntimePatch] skip shared movement caps: feature.playerMovement.enabled=0");
+    }
 
     return ok;
 }

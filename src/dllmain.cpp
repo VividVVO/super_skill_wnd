@@ -23,6 +23,8 @@
 #include "runtime/cleanup_pipeline.h"
 #include "runtime/crash_capture.h"
 #include "runtime/feature_switches.h"
+#include "util/runtime_paths.h"
+#include "util/skill_config_package.h"
 #include <algorithm>
 #include <cwchar>
 #include <intrin.h>
@@ -172,9 +174,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v23.66-2026-05-15-echo-skip-b31349-split-label";
+static const char* BUILD_MARKER = "v23.72-2026-05-17-split-shared-movement-caps";
 #else
-static const char* BUILD_MARKER = "v23.66-2026-05-15-echo-skip-b31349-split-label";
+static const char* BUILD_MARKER = "v23.72-2026-05-17-split-shared-movement-caps";
 #endif
 
 static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
@@ -188,6 +190,122 @@ static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
 static bool UseImguiOverlayPanelRuntime()
 {
     return UseImguiOverlayPanelForMode(g_IsD3D8Mode);
+}
+
+static std::wstring DwordToIpStringLittleEndianForInit(DWORD value)
+{
+    wchar_t buffer[32] = {};
+    swprintf_s(buffer,
+        L"%u.%u.%u.%u",
+        value & 0xFFU,
+        (value >> 8) & 0xFFU,
+        (value >> 16) & 0xFFU,
+        (value >> 24) & 0xFFU);
+    return buffer;
+}
+
+static std::wstring ResolveRuntimeSkillConfigDirForInit()
+{
+    const std::wstring dllDir = ssw::path::GetHookDllDirectory();
+    const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
+    return ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
+}
+
+static bool WaitForSkillConfigRuntimePasswordIfNeeded()
+{
+    const std::wstring skillDir = ResolveRuntimeSkillConfigDirForInit();
+    ssw::skillpack::SkillConfigRuntimePasswordProbe probe = {};
+    if (!ssw::skillpack::QuerySkillConfigRuntimePasswordProbe(skillDir, probe) ||
+        !probe.packageFileExists)
+    {
+        WriteLogFmt(
+            "[InitStage] SSP gate skip: skill_pack.ssp missing dir=%s",
+            ssw::path::WideToUtf8(skillDir).c_str());
+        return true;
+    }
+
+    WriteLogFmt(
+        "[InitStage] SSP gate armed dir=%s package=1 plainMarker=%d addr=0x%08X raw=0x%08X",
+        ssw::path::WideToUtf8(skillDir).c_str(),
+        probe.plainConfigPresent ? 1 : 0,
+        static_cast<DWORD>(probe.runtimePasswordAddress),
+        probe.runtimePasswordRaw);
+
+    if (probe.runtimePasswordAddress != 0 && probe.runtimePasswordRaw != 0)
+    {
+        const std::wstring rawIp = DwordToIpStringLittleEndianForInit(probe.runtimePasswordRaw);
+        WriteLogFmt(
+            "[InitStage] SSP gate satisfied immediately addr=0x%08X raw=0x%08X rawIp=%ls",
+            static_cast<DWORD>(probe.runtimePasswordAddress),
+            probe.runtimePasswordRaw,
+            rawIp.c_str());
+        return true;
+    }
+
+    uintptr_t runtimePasswordAddress = probe.runtimePasswordAddress;
+    DWORD lastLoggedRaw = probe.runtimePasswordRaw;
+    const DWORD waitStartTick = GetTickCount();
+    DWORD nextStatusLogTick = waitStartTick;
+    DWORD nextRescanTick = waitStartTick;
+
+    for (;;)
+    {
+        DWORD observedRaw = 0;
+        if (runtimePasswordAddress != 0 &&
+            !SafeIsBadReadPtr(reinterpret_cast<void*>(runtimePasswordAddress), sizeof(DWORD)))
+        {
+            observedRaw = *(volatile DWORD*)runtimePasswordAddress;
+            if (observedRaw != 0)
+            {
+                const std::wstring rawIp = DwordToIpStringLittleEndianForInit(observedRaw);
+                WriteLogFmt(
+                    "[InitStage] SSP gate satisfied after %u ms addr=0x%08X raw=0x%08X rawIp=%ls",
+                    GetTickCount() - waitStartTick,
+                    static_cast<DWORD>(runtimePasswordAddress),
+                    observedRaw,
+                    rawIp.c_str());
+                return true;
+            }
+            lastLoggedRaw = observedRaw;
+        }
+
+        const DWORD nowTick = GetTickCount();
+        if (runtimePasswordAddress == 0 || nowTick - nextRescanTick >= 2000)
+        {
+            ssw::skillpack::SkillConfigRuntimePasswordProbe refreshedProbe = {};
+            if (ssw::skillpack::QuerySkillConfigRuntimePasswordProbe(skillDir, refreshedProbe))
+            {
+                probe = refreshedProbe;
+                runtimePasswordAddress = refreshedProbe.runtimePasswordAddress;
+                lastLoggedRaw = refreshedProbe.runtimePasswordRaw;
+                if (runtimePasswordAddress != 0 && lastLoggedRaw != 0)
+                {
+                    const std::wstring rawIp = DwordToIpStringLittleEndianForInit(lastLoggedRaw);
+                    WriteLogFmt(
+                        "[InitStage] SSP gate satisfied after rescan %u ms addr=0x%08X raw=0x%08X rawIp=%ls",
+                        GetTickCount() - waitStartTick,
+                        static_cast<DWORD>(runtimePasswordAddress),
+                        lastLoggedRaw,
+                        rawIp.c_str());
+                    return true;
+                }
+            }
+            nextRescanTick = nowTick;
+        }
+
+        if (nowTick - nextStatusLogTick >= 2000)
+        {
+            WriteLogFmt(
+                "[InitStage] SSP gate waiting elapsed=%u ms addr=0x%08X raw=0x%08X plainMarker=%d",
+                nowTick - waitStartTick,
+                static_cast<DWORD>(runtimePasswordAddress),
+                lastLoggedRaw,
+                probe.plainConfigPresent ? 1 : 0);
+            nextStatusLogTick = nowTick;
+        }
+
+        Sleep(200);
+    }
 }
 
 static bool InstallConfiguredInputSpoof()
@@ -355,12 +473,16 @@ static DWORD WINAPI InitThread(LPVOID)
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
     WriteLog("[CarrierProbe] runtime enabled hotkeys: F10=run once, F11=poll, F12=release");
 #endif
-    WriteLog("[InitStage] before InitializeCrashCaptureRuntime");
-    ssw::runtime::InitializeCrashCaptureRuntime();
-    WriteLog("[InitStage] after InitializeCrashCaptureRuntime");
     WriteLog("[InitStage] before InitThread Sleep(2000)");
     Sleep(2000);
     WriteLog("[InitStage] after InitThread Sleep(2000)");
+    WriteLog("[InitStage] before WaitForSkillConfigRuntimePasswordIfNeeded");
+    if (!WaitForSkillConfigRuntimePasswordIfNeeded())
+        return 1;
+    WriteLog("[InitStage] after WaitForSkillConfigRuntimePasswordIfNeeded");
+    WriteLog("[InitStage] before InitializeCrashCaptureRuntime");
+    ssw::runtime::InitializeCrashCaptureRuntime();
+    WriteLog("[InitStage] after InitializeCrashCaptureRuntime");
 
     WriteLog("[InitStage] before SkillManager.Initialize");
     g_SkillMgr.Initialize();
