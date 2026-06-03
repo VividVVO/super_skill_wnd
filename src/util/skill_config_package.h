@@ -26,6 +26,7 @@ struct SkillConfigRuntimePasswordProbe
 };
 
 bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<unsigned char>& outBytes);
+bool TryReadSkillConfigPackageRelativeBinaryFile(const std::wstring& skillConfigDir, const std::wstring& relativePath, std::vector<unsigned char>& outBytes);
 bool TryReadSkillConfigTextFile(const std::wstring& absolutePath, std::string& outText);
 bool TryEnumerateSkillConfigPackageEntries(const std::wstring& skillConfigDir, std::vector<SkillConfigPackageEntryInfo>& outEntries);
 void InvalidateSkillConfigPackage();

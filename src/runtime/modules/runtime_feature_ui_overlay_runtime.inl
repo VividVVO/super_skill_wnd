@@ -1394,20 +1394,17 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
 // D3D8 Reset hook — 释放 D3D8 纹理
 static HRESULT __stdcall hkD3D8Reset(void *pDevice8, void *pPresentationParameters)
 {
-    WriteLog("[D3D8] Reset called, releasing D3D8 textures");
+    bool logResetSummary = false;
+    LONG resetCountForLog = 0;
     {
         static DWORD s_lastD3D8ResetRateTick = 0;
         static LONG s_d3d8ResetCount = 0;
         const DWORD now = GetTickCount();
         LONG count = InterlockedIncrement(&s_d3d8ResetCount);
-        if (s_lastD3D8ResetRateTick == 0)
-            s_lastD3D8ResetRateTick = now;
-        if (now - s_lastD3D8ResetRateTick > 1000)
+        if (s_lastD3D8ResetRateTick == 0 || now - s_lastD3D8ResetRateTick > 1000)
         {
-            WriteLogFmt("[D3D8ResetRate] count=%ld device=0x%08X pp=0x%08X",
-                        count,
-                        (DWORD)(uintptr_t)pDevice8,
-                        (DWORD)(uintptr_t)pPresentationParameters);
+            logResetSummary = true;
+            resetCountForLog = count;
             InterlockedExchange(&s_d3d8ResetCount, 0);
             s_lastD3D8ResetRateTick = now;
         }
@@ -1427,7 +1424,14 @@ static HRESULT __stdcall hkD3D8Reset(void *pDevice8, void *pPresentationParamete
         {
             SuperD3D8OverlayOnDeviceReset(pDevice8);
         }
-        WriteLog("[D3D8] Reset OK, overlay device objects refreshed");
+        if (logResetSummary)
+        {
+            WriteLogFmt("[D3D8ResetRate] count=%ld hr=0x%08X device=0x%08X pp=0x%08X",
+                        resetCountForLog,
+                        (DWORD)hr,
+                        (DWORD)(uintptr_t)pDevice8,
+                        (DWORD)(uintptr_t)pPresentationParameters);
+        }
     }
     else
     {

@@ -471,6 +471,9 @@ namespace
             return true;
         if (_wcsicmp(normalized.c_str(), L"skill_local_cache.bin") == 0)
             return true;
+        if (normalized.size() > 11 &&
+            normalized.compare(0, 11, L"ui/skillex/") == 0)
+            return true;
         return false;
     }
 
@@ -1207,6 +1210,33 @@ namespace
         return true;
     }
 
+    bool TryReadRelativeFromLoadedPackage(
+        const std::wstring& skillConfigDir,
+        const std::wstring& relativePath,
+        std::vector<unsigned char>& outBytes)
+    {
+        outBytes.clear();
+
+        const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
+        const std::wstring normalizedRelativePath = NormalizeRelativePath(relativePath);
+        if (directory.empty() || normalizedRelativePath.empty())
+            return false;
+
+        if (!LoadPackageForDirectory(directory))
+            return false;
+
+        PackageStateLockGuard guard;
+        if (!g_state.packageLoaded)
+            return false;
+
+        std::map<std::wstring, size_t>::const_iterator it = g_state.entryIndexByPath.find(normalizedRelativePath);
+        if (it == g_state.entryIndexByPath.end())
+            return false;
+
+        outBytes = g_state.entries[it->second].plainBytes;
+        return true;
+    }
+
     bool EndsWithIgnoreCase(const std::wstring& value, const wchar_t* suffix)
     {
         if (value.empty() || !suffix || !suffix[0])
@@ -1319,6 +1349,35 @@ bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<
         }
     }
     return ReadBinaryFilePhysical(absolutePath, outBytes);
+}
+
+bool TryReadSkillConfigPackageRelativeBinaryFile(
+    const std::wstring& skillConfigDir,
+    const std::wstring& relativePath,
+    std::vector<unsigned char>& outBytes)
+{
+    outBytes.clear();
+
+    const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
+    const std::wstring normalizedRelativePath = NormalizeRelativePath(relativePath);
+    if (directory.empty() || normalizedRelativePath.empty())
+        return false;
+
+    if (TryReadRelativeFromLoadedPackage(directory, normalizedRelativePath, outBytes))
+        return true;
+
+    if (IsRuntimePasswordPendingForDirectory(directory))
+        return false;
+
+    if (ShouldPreferPackageForDirectory(directory) &&
+        IsPackageCoveredRelativePath(normalizedRelativePath))
+    {
+        WriteLogFmt("[SkillPack] WARN package-owned relative read failed dir=%s relative=%ls",
+            WideToUtf8String(directory).c_str(),
+            normalizedRelativePath.c_str());
+    }
+
+    return false;
 }
 
 bool TryReadSkillConfigTextFile(const std::wstring& absolutePath, std::string& outText)

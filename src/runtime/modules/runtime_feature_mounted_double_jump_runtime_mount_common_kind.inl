@@ -1,5 +1,22 @@
-﻿static bool IsExtendedMountActionGateMount(int mountItemId)
+﻿static bool IsNativeJobMountExcludedFromExtendedMountRuntime(int mountItemId)
 {
+    switch (mountItemId)
+    {
+    case 1932016: // Mechanic mech
+    case 1932033: // Wild Hunter jaguar
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool IsExtendedMountActionGateMount(int mountItemId)
+{
+    if (IsNativeJobMountExcludedFromExtendedMountRuntime(mountItemId))
+    {
+        return false;
+    }
+
     // 客户端 sub_4069E0 仍只硬编码放行到 1992015，导致 1999xxx 自定义坐骑
     // 即使 WZ 带 ladder/rope 资源、服务端也认可攀爬，case 51/52 仍会直接回退。
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
@@ -13,6 +30,10 @@ static bool IsExtendedMountServerValidatedSoaringMount(int mountItemId)
 {
     // 扩展 193x 坐骑统一放进 80001089 / family gate 链，最终能否飞行交给服务端判定。
     // 原生 1992xxx 飞行家族保持客户端原行为，避免回归已稳定的原生骑宠链。
+    if (IsNativeJobMountExcludedFromExtendedMountRuntime(mountItemId))
+    {
+        return false;
+    }
     return mountItemId >= 1932016 && mountItemId < 1992000;
 }
 
@@ -26,6 +47,10 @@ static int ResolveExtendedMountNativeFlightSkillId(int mountItemId)
         // 扩展 193x 坐骑统一走 80001089；即使最终服务端不允许飞，也要先把客户端
         // 的原生 Soaring gate / 发包链接通，避免在本地提前死在 80001077 donor 分叉。
         return 80001089;
+    }
+    if (IsNativeJobMountExcludedFromExtendedMountRuntime(mountItemId))
+    {
+        return 0;
     }
     if (mountItemId >= 1932016 && mountItemId <= 1999999)
     {

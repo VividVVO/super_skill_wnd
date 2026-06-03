@@ -1298,27 +1298,16 @@ static bool LoadCpuButtonBitmap1555FromResource(int resID, CpuButtonBitmap1555* 
     outBmp->pixels.clear();
     outBmp->alpha.clear();
 
-    HRSRC hRes = FindResourceA(g_hModule, MAKEINTRESOURCEA(resID), RT_RCDATA);
-    if (!hRes) {
-        WriteLogFmt("[BtnCpuBmp] FindResource(%d) failed", resID);
+    std::vector<unsigned char> fileBytes;
+    if (!ssw::path::TryReadSkillExAssetBytes(resID, fileBytes) || fileBytes.empty()) {
+        WriteLogFmt("[BtnCpuBmp] TryReadSkillExAssetBytes(%d) failed", resID);
         return false;
     }
-
-    HGLOBAL hMem = LoadResource(g_hModule, hRes);
-    DWORD sz = SizeofResource(g_hModule, hRes);
-    if (!hMem || !sz) {
-        WriteLogFmt("[BtnCpuBmp] LoadResource(%d) failed", resID);
-        return false;
-    }
-
-    void* pData = LockResource(hMem);
-    if (!pData)
-        return false;
 
     int w = 0;
     int h = 0;
     int ch = 0;
-    unsigned char* rgba = stbi_load_from_memory((const unsigned char*)pData, (int)sz, &w, &h, &ch, 4);
+    unsigned char* rgba = stbi_load_from_memory(&fileBytes[0], (int)fileBytes.size(), &w, &h, &ch, 4);
     if (!rgba || w <= 0 || h <= 0) {
         WriteLogFmt("[BtnCpuBmp] stbi_load(%d) failed", resID);
         if (rgba)
@@ -1350,7 +1339,7 @@ static bool LoadCpuButtonBitmap1555FromResource(int resID, CpuButtonBitmap1555* 
     }
 
     stbi_image_free(rgba);
-    WriteLogFmt("[BtnCpuBmp] loaded res=%d size=%dx%d", resID, w, h);
+    WriteLogFmt("[BtnCpuBmp] loaded asset res=%d size=%dx%d", resID, w, h);
     return true;
 }
 

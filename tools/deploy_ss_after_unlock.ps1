@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$sourceDll = 'G:\code\c++\SuperSkillWnd\build\Debug\SS.dll'
-$sourcePdb = 'G:\code\c++\SuperSkillWnd\build\Debug\SS.pdb'
+$sourceDll = 'G:\code\c++\SuperSkillWnd\build\Release\SS.dll'
+$sourcePdb = 'G:\code\c++\SuperSkillWnd\build\Release\SS.pdb'
 $targetDll = 'G:\code\mxd\Data\Plugins\SS\SS.dll'
 $targetPdb = 'G:\code\mxd\Data\Plugins\SS\SS.pdb'
 $logPath = 'G:\code\c++\SuperSkillWnd\build\deploy_ss_after_unlock.log'
@@ -41,7 +41,12 @@ Write-DeployLog 'Maplestory exited, waiting for target unlock'
 Wait-ForFileUnlock -Path $targetDll
 
 Copy-Item -LiteralPath $sourceDll -Destination $targetDll -Force
-Copy-Item -LiteralPath $sourcePdb -Destination $targetPdb -Force
+if (Test-Path -LiteralPath $sourcePdb) {
+    Copy-Item -LiteralPath $sourcePdb -Destination $targetPdb -Force
+} else {
+    Write-DeployLog "source pdb missing, skipped pdb copy: $sourcePdb"
+}
 
 $dllInfo = Get-Item -LiteralPath $targetDll
-Write-DeployLog ("deployed SS.dll length={0} lastWrite={1}" -f $dllInfo.Length, $dllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))
+$dllHash = (Get-FileHash -LiteralPath $targetDll -Algorithm SHA256).Hash
+Write-DeployLog ("deployed SS.dll source={0} length={1} lastWrite={2} sha256={3}" -f $sourceDll, $dllInfo.Length, $dllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'), $dllHash)

@@ -1521,12 +1521,15 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
     int currentUserMountItemId = 0;
     const bool currentUserMountReadable =
         TryReadCurrentUserMountItemId(&currentUserMountItemId);
-    const bool shouldSuppressPlayerIndependentMovement =
+    const bool isOnFootMovementContext =
+        (contextualPlayerMountReadable && contextualPlayerMountItemId <= 0) ||
+        (!contextualPlayerMountReadable && currentUserMountReadable && currentUserMountItemId <= 0) ||
+        (!contextualPlayerMountReadable && !currentUserMountReadable && !hasMountedRawSample);
+    const bool shouldClampPlayerMovementOutput =
         !enablePlayerMovement &&
-        SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() &&
-        ((contextualPlayerMountReadable && contextualPlayerMountItemId <= 0) ||
-         (!contextualPlayerMountReadable && currentUserMountReadable && currentUserMountItemId <= 0) ||
-         (!contextualPlayerMountReadable && !currentUserMountReadable && !hasMountedRawSample));
+        isOnFootMovementContext &&
+        (enableMountMovement ||
+         SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses());
 
     MountedMovementOverride mountedRawOverride = {};
     const bool shouldRaiseFromMountedRaw =
@@ -1561,7 +1564,7 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
             metricExtra = originalMetricOut - originalSpeedOut;
     }
 
-    if (shouldSuppressPlayerIndependentMovement)
+    if (shouldClampPlayerMovementOutput)
     {
         int suppressedSpeedOut = originalSpeedOut;
         int suppressedJumpOut = originalJumpOut;
@@ -1589,7 +1592,7 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
             InterlockedDecrement(&g_MovementOutputClampLogBudget) >= 0)
         {
             WriteLogFmt(
-                "[MoveClamp] B93B80 suppress player speed=%d->%d jump=%d->%d mountCtx=%d/%d userMount=%d/%d active=%d metricExtra=%d",
+                "[MoveClamp] B93B80 clamp player speed=%d->%d jump=%d->%d mountCtx=%d/%d userMount=%d/%d mountFeature=%d active=%d metricExtra=%d",
                 originalSpeedOut,
                 suppressedSpeedOut,
                 originalJumpOut,
@@ -1598,6 +1601,7 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
                 contextualPlayerMountReadable ? 1 : 0,
                 currentUserMountItemId,
                 currentUserMountReadable ? 1 : 0,
+                enableMountMovement ? 1 : 0,
                 SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0,
                 metricExtra);
         }

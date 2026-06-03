@@ -1,3 +1,15 @@
+static bool IsMountedRuntimePlayerObjectCurrentUserLocal(void *playerObj)
+{
+    if (!playerObj)
+    {
+        return false;
+    }
+
+    void *currentUserLocal = nullptr;
+    return TryReadCurrentUserLocalPtr(&currentUserLocal) &&
+           currentUserLocal == playerObj;
+}
+
 static bool TryResolveMountedRuntimeSkillMountItemIdWithFallback(
     MountedRuntimeSkillKind kind,
     void *playerObj,
@@ -16,39 +28,60 @@ static bool TryResolveMountedRuntimeSkillMountItemIdWithFallback(
 
     int mountItemId = 0;
     const char *source = nullptr;
-    if (playerObj && TryReadMountItemIdFromPlayerObject(playerObj, &mountItemId))
+    bool playerObjIsCurrentUser = false;
+    if (playerObj)
     {
-        source = "player";
+        playerObjIsCurrentUser =
+            IsMountedRuntimePlayerObjectCurrentUserLocal(playerObj);
+
+        int playerMountItemId = 0;
+        if (TryReadMountItemIdFromPlayerObjectRaw(playerObj, &playerMountItemId) &&
+            playerMountItemId > 0)
+        {
+            mountItemId = playerMountItemId;
+            source = "player";
+        }
+        else if (!playerObjIsCurrentUser)
+        {
+            // A non-local player object is authoritative for that actor. Do not
+            // fall back to local/recent mount caches or party members can leak
+            // their mount runtime into another character's skill release path.
+            return false;
+        }
     }
-    else if (TryReadCurrentUserMountItemId(&mountItemId))
+
+    if (!source)
     {
-        source = "user";
-    }
-    else if (TryGetRecentMountedRuntimeRouteArmMountItemIdForKind(
-                 kind,
-                 &mountItemId,
-                 maxAgeMs) &&
-             ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
-    {
-        source = "route-arm";
-    }
-    else if (TryGetRecentMountedRuntimeSkillIntentItemId(kind, &mountItemId, maxAgeMs) &&
-             ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
-    {
-        source = "intent";
-    }
-    else if (TryGetRecentMountedRuntimeSkillNativeReleaseItemId(kind, &mountItemId, maxAgeMs) &&
-             ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
-    {
-        source = "native-release";
-    }
-    else if (TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &source) &&
-             ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
-    {
-    }
-    else
-    {
-        return false;
+        if (TryReadCurrentUserMountItemId(&mountItemId))
+        {
+            source = "user";
+        }
+        else if (TryGetRecentMountedRuntimeRouteArmMountItemIdForKind(
+                     kind,
+                     &mountItemId,
+                     maxAgeMs) &&
+                 ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
+        {
+            source = "route-arm";
+        }
+        else if (TryGetRecentMountedRuntimeSkillIntentItemId(kind, &mountItemId, maxAgeMs) &&
+                 ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
+        {
+            source = "intent";
+        }
+        else if (TryGetRecentMountedRuntimeSkillNativeReleaseItemId(kind, &mountItemId, maxAgeMs) &&
+                 ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
+        {
+            source = "native-release";
+        }
+        else if (TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &source) &&
+                 ResolveMountedRuntimeSkillIdForKind(kind, mountItemId) > 0)
+        {
+        }
+        else
+        {
+            return false;
+        }
     }
 
     if (source &&

@@ -131,6 +131,7 @@ static const bool ENABLE_IMGUI_OVERLAY_PANEL = false;
 #else
 static const bool ENABLE_IMGUI_OVERLAY_PANEL = true;
 #endif
+static std::string g_ImguiPanelAssetPathStorage;
 static const char* IMGUI_PANEL_ASSET_PATH = "";
 
 // ============================================================================
@@ -174,9 +175,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v23.72-2026-05-17-split-shared-movement-caps";
+static const char* BUILD_MARKER = "v23.77-2026-05-24-exclude-jaguar-mount-runtime";
 #else
-static const char* BUILD_MARKER = "v23.72-2026-05-17-split-shared-movement-caps";
+static const char* BUILD_MARKER = "v23.77-2026-05-24-exclude-jaguar-mount-runtime";
 #endif
 
 static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
@@ -209,6 +210,25 @@ static std::wstring ResolveRuntimeSkillConfigDirForInit()
     const std::wstring dllDir = ssw::path::GetHookDllDirectory();
     const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
     return ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
+}
+
+static void RefreshImguiPanelAssetPathForInit()
+{
+    const std::wstring dllDir = ssw::path::GetHookDllDirectory();
+    const std::wstring rootDir = ssw::path::ResolveRootDirectoryFromHook();
+    const std::wstring skillConfigDir = ssw::path::ResolveSkillConfigDir(rootDir, dllDir);
+    const std::wstring assetDir = ssw::path::ResolveSkillExAssetDir(rootDir, dllDir);
+    const bool packageExists = ssw::skillpack::DoesSkillConfigPackageExist(skillConfigDir);
+
+    g_ImguiPanelAssetPathStorage = ssw::path::WideToUtf8(assetDir);
+    IMGUI_PANEL_ASSET_PATH = g_ImguiPanelAssetPathStorage.c_str();
+
+    WriteLogFmt("[InitStage] ui asset dir=%s package=%d skillDir=%s",
+        IMGUI_PANEL_ASSET_PATH && IMGUI_PANEL_ASSET_PATH[0]
+            ? IMGUI_PANEL_ASSET_PATH
+            : "<none>",
+        packageExists ? 1 : 0,
+        ssw::path::WideToUtf8(skillConfigDir).c_str());
 }
 
 static bool WaitForSkillConfigRuntimePasswordIfNeeded()
@@ -459,6 +479,7 @@ static DWORD WINAPI InitThread(LPVOID)
     WriteLog("[InitStage] enter InitThread");
     WriteLog("=== SuperSkillWnd Init v14.9 (ImGui Overlay Panel) ===");
     WriteLogFmt("[Build] marker=%s", BUILD_MARKER);
+    RefreshImguiPanelAssetPathForInit();
     WriteLogFmt("[Build] panel_gap=%d btn_off=(%d,%d) vt_delta=%d gone_debounce=%u present_click_poll=%d present_panel_draw=%d routeb_alloc=0x%X focusSync(toggle=%d,move=%d) presentNativeChildUpdate=%d refreshNativeChildUpdate=%d",
         PANEL_LEFT_GAP, BTN_X_OFFSET, BTN_Y_OFFSET, PREFER_VT_DELTA, SKILLWND_GONE_DEBOUNCE_MS,
         ENABLE_PRESENT_CLICK_POLL ? 1 : 0, ENABLE_PRESENT_PANEL_DRAW ? 1 : 0, ROUTEB_CHILD_ALLOC_SIZE,

@@ -5,19 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0603c343-35b8-4bb5-a411-91cf18a32f2a" name="更改" comment="">
-      <change afterPath="$PROJECT_DIR$/internal/web/templates/login.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/core/Common.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/core/Common.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/core/GameAddresses.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/core/GameAddresses.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../src/dllmain.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/dllmain.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/runtime/dllmain_section_core_ui.inl" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/runtime/dllmain_section_core_ui.inl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/runtime/dllmain_section_runtime_hooks.inl" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/runtime/dllmain_section_runtime_hooks.inl" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/skill/skill_overlay_bridge.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/skill/skill_overlay_bridge.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_app.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_app.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_app.h" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_app.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/ui/retro_skill_panel.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/retro_skill_panel.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay_d3d8.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/ui/super_imgui_overlay_d3d8.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../tools/SkillImgReader/Program.cs" beforeDir="false" afterPath="$PROJECT_DIR$/../../tools/SkillImgReader/Program.cs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../src/runtime/modules/runtime_feature_mounted_double_jump_runtime_mount_common_kind.inl" beforeDir="false" afterPath="$PROJECT_DIR$/../../src/runtime/modules/runtime_feature_mounted_double_jump_runtime_mount_common_kind.inl" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -35,9 +24,9 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../.." />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 1
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
   <component name="ProjectId" id="3Cp2IQkr12JFsZTV4raPOZi70t9" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -51,7 +40,7 @@
     "RunOnceActivity.go.formatter.settings.were.checked": "true",
     "RunOnceActivity.go.migrated.go.modules.settings": "true",
     "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "git-widget-placeholder": "backup/20260422-mount-retrigger",
+    "git-widget-placeholder": "backup/20260510-pre-refactor-snapshot",
     "go.import.settings.migrated": "true",
     "go.sdk.automatically.set": "true",
     "last_opened_file_path": "G:/code/c++/SuperSkillWnd/auth_system/server",

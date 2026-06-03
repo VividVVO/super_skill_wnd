@@ -25,34 +25,32 @@ static HWND GetRealGameWindow()
 }
 
 // ============================================================================
-// PNG纹理从DLL资源加载（面板背景用，后续迁移到原生后可移除）
+// PNG纹理从外部文件加载（避免触发 DLL 资源读取链）
 // ============================================================================
+static bool LoadSkillExAssetBytes(int resID, std::vector<unsigned char>& outBytes)
+{
+    outBytes.clear();
+
+    if (!ssw::path::TryReadSkillExAssetBytes(resID, outBytes) || outBytes.empty())
+    {
+        WriteLogFmt("[Tex] TryReadSkillExAssetBytes(%d) failed", resID);
+        return false;
+    }
+
+    return true;
+}
+
 static IDirect3DTexture9 *LoadTextureFromResource(IDirect3DDevice9 *dev, int resID)
 {
     if (!dev)
         return nullptr;
 
-    HRSRC hRes = FindResourceA(g_hModule, MAKEINTRESOURCEA(resID), RT_RCDATA);
-    if (!hRes)
-    {
-        WriteLogFmt("[Tex] FindResource(%d) failed", resID);
-        return nullptr;
-    }
-
-    HGLOBAL hMem = LoadResource(g_hModule, hRes);
-    DWORD sz = SizeofResource(g_hModule, hRes);
-    if (!hMem || !sz)
-    {
-        WriteLogFmt("[Tex] LoadResource(%d) failed", resID);
-        return nullptr;
-    }
-
-    void *pData = LockResource(hMem);
-    if (!pData)
+    std::vector<unsigned char> fileBytes;
+    if (!LoadSkillExAssetBytes(resID, fileBytes))
         return nullptr;
 
     int w, h, ch;
-    unsigned char *pixels = stbi_load_from_memory((const unsigned char *)pData, (int)sz, &w, &h, &ch, 4);
+    unsigned char *pixels = stbi_load_from_memory(&fileBytes[0], (int)fileBytes.size(), &w, &h, &ch, 4);
     if (!pixels)
     {
         WriteLogFmt("[Tex] stbi_load(%d) failed", resID);
@@ -95,7 +93,7 @@ static IDirect3DTexture9 *LoadTextureFromResource(IDirect3DDevice9 *dev, int res
     }
 
     stbi_image_free(pixels);
-    WriteLogFmt("[Tex] Loaded #%d: %dx%d", resID, w, h);
+    WriteLogFmt("[Tex] Loaded asset #%d: %dx%d", resID, w, h);
     return tex;
 }
 
@@ -148,32 +146,14 @@ static D3D8Texture LoadTextureFromResourceD3D8(void *pDevice8, int resID)
     if (!pDevice8)
         return tex;
 
-    HRSRC hRes = FindResourceA(g_hModule, MAKEINTRESOURCEA(resID), RT_RCDATA);
-    if (!hRes)
-    {
-        WriteLogFmt("[D3D8Tex] FindResource(%d) failed", resID);
+    std::vector<unsigned char> fileBytes;
+    if (!LoadSkillExAssetBytes(resID, fileBytes))
         return tex;
-    }
-
-    HGLOBAL hMem = LoadResource(g_hModule, hRes);
-    DWORD sz = SizeofResource(g_hModule, hRes);
-    if (!hMem || !sz)
-    {
-        WriteLogFmt("[D3D8Tex] LoadResource(%d) failed", resID);
-        return tex;
-    }
-
-    void *pData = LockResource(hMem);
-    if (!pData)
-    {
-        WriteLogFmt("[D3D8Tex] LockResource(%d) failed", resID);
-        return tex;
-    }
 
     int w = 0;
     int h = 0;
     int ch = 0;
-    unsigned char *rgba = stbi_load_from_memory((const unsigned char *)pData, (int)sz, &w, &h, &ch, 4);
+    unsigned char *rgba = stbi_load_from_memory(&fileBytes[0], (int)fileBytes.size(), &w, &h, &ch, 4);
     if (!rgba)
     {
         WriteLogFmt("[D3D8Tex] stbi_load(%d) failed", resID);
@@ -194,7 +174,7 @@ static D3D8Texture LoadTextureFromResourceD3D8(void *pDevice8, int resID)
     stbi_image_free(rgba);
     if (tex.pTexture8)
     {
-        WriteLogFmt("[D3D8Tex] Loaded #%d: %dx%d", resID, tex.width, tex.height);
+        WriteLogFmt("[D3D8Tex] Loaded asset #%d: %dx%d", resID, tex.width, tex.height);
     }
     return tex;
 }

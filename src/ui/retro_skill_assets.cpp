@@ -2,6 +2,7 @@
 
 #include "resource.h"
 #include "skill/skill_local_data.h"
+#include "util/runtime_paths.h"
 #include "util/stb_image.h"
 
 #include "core/Common.h"
@@ -56,69 +57,23 @@ bool LoadRetroSkillTextureFromMemory(const RetroDeviceRef& deviceRef, const unsi
     return LoadTextureInternalFromMemory(deviceRef, data, size, outTexture);
 }
 
-static HMODULE GetCurrentModuleHandle()
-{
-    HMODULE module = nullptr;
-    if (::GetModuleHandleExW(
-            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            reinterpret_cast<LPCWSTR>(&GetCurrentModuleHandle),
-            &module) && module)
-    {
-        return module;
-    }
-
-    // Fallback: try known DLL names
-    module = ::GetModuleHandleA("SS.dll");
-    if (module) return module;
-    module = ::GetModuleHandleA("hook.dll");
-    if (module) return module;
-
-    WriteLog("[Assets] GetCurrentModuleHandle: all methods failed");
-    return nullptr;
-}
-
-static bool LoadResourceBytes(int resourceId, std::vector<unsigned char>& outBytes)
+static bool LoadAssetBytes(int resourceId, std::vector<unsigned char>& outBytes)
 {
     outBytes.clear();
 
-    HMODULE module = GetCurrentModuleHandle();
-    if (!module)
+    if (!ssw::path::TryReadSkillExAssetBytes(resourceId, outBytes) || outBytes.empty())
     {
-        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: no module handle", resourceId);
+        WriteLogFmt("[Assets] TryReadSkillExAssetBytes(%d) FAIL", resourceId);
         return false;
     }
 
-    HRSRC resource = ::FindResourceA(module, MAKEINTRESOURCEA(resourceId), RT_RCDATA);
-    if (!resource)
-    {
-        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: FindResource returned null (module=0x%08X)", resourceId, (unsigned)(uintptr_t)module);
-        return false;
-    }
-
-    HGLOBAL resourceData = ::LoadResource(module, resource);
-    DWORD resourceSize = ::SizeofResource(module, resource);
-    if (!resourceData || resourceSize == 0)
-    {
-        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: LoadResource or size=0", resourceId);
-        return false;
-    }
-
-    const void* lockedData = ::LockResource(resourceData);
-    if (!lockedData)
-    {
-        WriteLogFmt("[Assets] LoadResourceBytes(%d) FAIL: LockResource", resourceId);
-        return false;
-    }
-
-    const unsigned char* bytes = static_cast<const unsigned char*>(lockedData);
-    outBytes.assign(bytes, bytes + resourceSize);
     return true;
 }
 
-static bool LoadTextureFromResource(const RetroDeviceRef& deviceRef, int resourceId, UITexture& outTexture)
+static bool LoadTextureFromAssetFile(const RetroDeviceRef& deviceRef, int resourceId, UITexture& outTexture)
 {
     std::vector<unsigned char> fileBytes;
-    if (!LoadResourceBytes(resourceId, fileBytes) || fileBytes.empty())
+    if (!LoadAssetBytes(resourceId, fileBytes) || fileBytes.empty())
         return false;
 
     return LoadTextureInternalFromMemory(deviceRef, &fileBytes[0], fileBytes.size(), outTexture);
@@ -174,7 +129,7 @@ bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, const RetroDeviceRef& dev
 
     auto loadOne = [&](const char* key, int resourceId) {
         UITexture texture;
-        if (LoadTextureFromResource(deviceRef, resourceId, texture))
+        if (LoadTextureFromAssetFile(deviceRef, resourceId, texture))
             assets.textures[key] = texture;
     };
 
@@ -207,7 +162,7 @@ bool LoadAllRetroSkillAssets(RetroSkillAssets& assets, const RetroDeviceRef& dev
     for (size_t i = 0; i < sizeof(kEmbeddedTextures) / sizeof(kEmbeddedTextures[0]); ++i)
         loadOne(kEmbeddedTextures[i].key, kEmbeddedTextures[i].resourceId);
 
-    WriteLogFmt("[Assets] embedded textures loaded: %d/%d", (int)assets.textures.size(), (int)(sizeof(kEmbeddedTextures) / sizeof(kEmbeddedTextures[0])));
+    WriteLogFmt("[Assets] external textures loaded: %d/%d", (int)assets.textures.size(), (int)(sizeof(kEmbeddedTextures) / sizeof(kEmbeddedTextures[0])));
 
     SkillLocalDataInitialize();
     std::vector<int> skillIds;

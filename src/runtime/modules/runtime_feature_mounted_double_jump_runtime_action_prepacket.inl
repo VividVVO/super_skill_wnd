@@ -701,18 +701,21 @@ static void __fastcall hkMountedDemonJumpUpActionAFB710(
         (callerRet == 0x00B1E02B || callerRet == 0x00B1CB35))
     {
         int postMountItemId = 0;
+        const bool allowPostLocalFallback =
+            IsMountedRuntimePlayerObjectCurrentUserLocal(thisPtr);
         const bool resolvedPostMount =
             TryResolveMountedDemonJumpMountItemIdWithFallback(
                 thisPtr,
                 &postMountItemId,
                 nullptr,
                 1200) ||
-            TryResolveMountedDemonJumpMountItemIdWithFallback(
-                nullptr,
-                &postMountItemId,
-                nullptr,
-                1200) ||
-            TryReadCurrentUserMountItemId(&postMountItemId);
+            (allowPostLocalFallback &&
+             (TryResolveMountedDemonJumpMountItemIdWithFallback(
+                  nullptr,
+                  &postMountItemId,
+                  nullptr,
+                  1200) ||
+              TryReadCurrentUserMountItemId(&postMountItemId)));
         int postRootSkillId = 0;
         int postCurrentSkillId = 0;
         const bool hasPostContext =
