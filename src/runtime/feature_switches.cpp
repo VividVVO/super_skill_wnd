@@ -35,7 +35,7 @@ namespace
         {FeatureSwitchId::CorePacketHooks, "runtime.core.packetHooks", true},
         {FeatureSwitchId::CoreLocalPotentialReadHooks, "runtime.core.localPotentialReadHooks", true},
         {FeatureSwitchId::CoreLocalPotentialDisplayHooks, "runtime.core.localPotentialDisplayHooks", true},
-        {FeatureSwitchId::CoreAbilityRedObservationHooks, "runtime.core.abilityRedObservationHooks", true},
+        {FeatureSwitchId::CoreAbilityRedObservationHooks, "runtime.core.abilityRedObservationHooks", false},
         {FeatureSwitchId::CoreStatusBarBuffSlotHooks, "runtime.core.statusBarBuffSlotHooks", true},
         {FeatureSwitchId::CoreSurfaceDrawObservationHook, "runtime.core.surfaceDrawObservationHook", true},
         {FeatureSwitchId::CoreNativeCursorStateHook, "runtime.core.nativeCursorStateHook", true},
@@ -158,6 +158,21 @@ namespace
 
     void ApplyPendingPackageSafetyOverrides()
     {
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreLocalPotentialReadHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreLocalPotentialDisplayHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreAbilityRedObservationHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreStatusBarBuffSlotHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreSurfaceDrawObservationHook);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CoreNativeCursorStateHook);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::CorePassiveEffectHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountMovementAbilityRedHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::GlobalMovementSetterProtectionHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::GlobalMovementOutputClampHook);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountMovementObservationHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedFlightPhysicsSpeedHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountMovementCapPatches);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountClimbGateHooks);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountFlightMappingHooks);
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpRuntimeHooks);
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpCrashTraceHooks);
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpPacketObserveHooks);
@@ -165,6 +180,7 @@ namespace
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpActionTraceHooks);
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpRequirementBypassHook);
         ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDemonJumpContextClearHook);
+        ForceFeatureSwitchDisabled(FeatureSwitchId::MountedDoubleJumpRuntimeHooks);
     }
 
     bool IsFeatureEnabledResolved(FeatureSwitchId id)
@@ -205,9 +221,13 @@ namespace
                     IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDoubleJumpEnabled) ||
                     IsFeatureEnabledResolved(FeatureSwitchId::FeatureMountDemonJumpEnabled));
 
+        case FeatureSwitchId::CoreAbilityRedObservationHooks:
+            return rawValue &&
+                   locallyAllowed &&
+                   IsFeatureEnabledResolved(FeatureSwitchId::FeatureSuperSkillIndependentBuffEnabled);
+
         case FeatureSwitchId::CoreLocalPotentialReadHooks:
         case FeatureSwitchId::CoreLocalPotentialDisplayHooks:
-        case FeatureSwitchId::CoreAbilityRedObservationHooks:
         case FeatureSwitchId::CoreStatusBarBuffSlotHooks:
         case FeatureSwitchId::PacketIndependentBuffCancelRewrite:
             return locallyAllowed &&
@@ -441,12 +461,11 @@ namespace
                     if (!g_loggedFeatureSwitchPackagePending)
                     {
                         WriteLogFmt(
-                            "[FeatureSwitch] package config pending runtime password, disabled demon runtime hooks path=%s",
+                            "[FeatureSwitch] package config pending runtime password, disabled reloadable runtime hooks path=%s",
                             ssw::path::WideToUtf8(g_loadedFeatureSwitchPath).c_str());
                         g_loggedFeatureSwitchPackagePending = true;
                     }
-                    g_featureSwitchesLoaded = false;
-                    WriteLog("[InitStage] leave EnsureFeatureSwitchesLoaded pending-runtime-password");
+                    WriteLog("[InitStage] leave EnsureFeatureSwitchesLoaded pending-runtime-password safety-defaults");
                     return;
                 }
 

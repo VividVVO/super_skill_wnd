@@ -1776,6 +1776,9 @@ static void ObserveMountedFlightNativeMotionBranch(
     bool mode44,
     int motionBranch)
 {
+    if (!EnableMountMovementDiagnosticLogs())
+        return;
+
     static LONG s_mountedFlightNativeMotionBranchLogBudget = 64;
     if (InterlockedDecrement(&s_mountedFlightNativeMotionBranchLogBudget) < 0)
     {

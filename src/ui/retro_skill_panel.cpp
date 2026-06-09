@@ -1,6 +1,7 @@
 #include "retro_skill_panel.h"
 
 #include "core/Common.h"
+#include "imgui.h"
 #include "retro_skill_app.h"
 #include "retro_skill_text_dwrite.h"
 #include "super_imgui_overlay.h"
@@ -585,6 +586,9 @@ static void LogTooltipDrawState(
     const std::string& currentInfoText,
     const std::string& nextInfoText)
 {
+    if (!EnableUiObservationDiagnosticLogs())
+        return;
+
     static DWORD s_lastLogTick = 0;
     static int s_lastSkillId = 0;
 
@@ -2175,7 +2179,7 @@ void RenderRetroSkillPanel(RetroSkillRuntimeState& state, RetroSkillAssets& asse
                         state.isDraggingSkill = true;
                         state.dragSkillTab = state.activeTab;
                         state.dragSkillIndex = (int)i;
-                        state.dragSkillGrabOffset = ImVec2(iconSize.x * 0.5f, iconSize.y * 0.5f);
+                        state.dragSkillGrabOffset = RetroVec2(iconSize.x * 0.5f, iconSize.y * 0.5f);
                         state.dragSkillStartedThisFrame = true;
                         state.dragSkillIsClickMode = true;
                         WriteLogFmt(

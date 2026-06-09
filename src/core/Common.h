@@ -63,6 +63,34 @@ inline bool SafeIsBadWritePtr(void* ptr, size_t size)
 #define SSW_ENABLE_DIAGNOSTIC_LOGS 0
 #endif
 
+#ifndef SSW_ENABLE_INDEPENDENT_BUFF_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_INDEPENDENT_BUFF_DIAGNOSTIC_LOGS 0
+#endif
+
+#ifndef SSW_ENABLE_BUFF_PACKET_PROBE_LOGS
+#define SSW_ENABLE_BUFF_PACKET_PROBE_LOGS 0
+#endif
+
+#ifndef SSW_ENABLE_ABILITYRED_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_ABILITYRED_DIAGNOSTIC_LOGS 0
+#endif
+
+#ifndef SSW_ENABLE_ABILITYRED_OBSERVATION_HOOKS
+#define SSW_ENABLE_ABILITYRED_OBSERVATION_HOOKS 0
+#endif
+
+#ifndef SSW_ENABLE_SUPER_SKILL_SYNC_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_SUPER_SKILL_SYNC_DIAGNOSTIC_LOGS 0
+#endif
+
+#ifndef SSW_ENABLE_UI_OBSERVATION_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_UI_OBSERVATION_DIAGNOSTIC_LOGS 0
+#endif
+
+#ifndef SSW_ENABLE_MOUNT_MOVEMENT_DIAGNOSTIC_LOGS
+#define SSW_ENABLE_MOUNT_MOVEMENT_DIAGNOSTIC_LOGS 0
+#endif
+
 inline const char* GetRuntimeLogFileName()
 {
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
@@ -242,17 +270,22 @@ inline void WriteLogFmt(const char* fmt, ...)
 
 inline bool EnableIndependentBuffOverlayDiagnosticLogs()
 {
-    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+    return SSW_ENABLE_INDEPENDENT_BUFF_DIAGNOSTIC_LOGS != 0;
+}
+
+inline bool EnableBuffPacketProbeLogs()
+{
+    return SSW_ENABLE_BUFF_PACKET_PROBE_LOGS != 0;
 }
 
 inline bool EnableAbilityRedDiagnosticLogs()
 {
-    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+    return SSW_ENABLE_ABILITYRED_DIAGNOSTIC_LOGS != 0;
 }
 
 inline bool EnableAbilityRedObservationHooks()
 {
-    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+    return SSW_ENABLE_ABILITYRED_OBSERVATION_HOOKS != 0;
 }
 
 inline bool EnableSceneFadeObservationHooks()
@@ -262,7 +295,17 @@ inline bool EnableSceneFadeObservationHooks()
 
 inline bool EnableSuperSkillSyncStateDiagnosticLogs()
 {
-    return SSW_ENABLE_DIAGNOSTIC_LOGS != 0;
+    return SSW_ENABLE_SUPER_SKILL_SYNC_DIAGNOSTIC_LOGS != 0;
+}
+
+inline bool EnableUiObservationDiagnosticLogs()
+{
+    return SSW_ENABLE_UI_OBSERVATION_DIAGNOSTIC_LOGS != 0;
+}
+
+inline bool EnableMountMovementDiagnosticLogs()
+{
+    return SSW_ENABLE_MOUNT_MOVEMENT_DIAGNOSTIC_LOGS != 0;
 }
 
 inline void HardenPixelArtAlphaEdgesRgba(

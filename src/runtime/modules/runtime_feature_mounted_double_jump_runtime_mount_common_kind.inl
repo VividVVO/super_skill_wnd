@@ -3,10 +3,10 @@
     switch (mountItemId)
     {
     case 1932016: // Mechanic mech
-    case 1932033: // Wild Hunter jaguar
         return true;
     default:
-        return false;
+        // Wild Hunter jaguar color variants.
+        return mountItemId >= 1932033 && mountItemId <= 1932036;
     }
 }
 

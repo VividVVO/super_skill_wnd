@@ -82,7 +82,8 @@ static bool GetSuperButtonBaseRectForD3D(RECT* outRect)
         {
             static DWORD s_lastRectLogTick = 0;
             const DWORD now = GetTickCount();
-            if (now - s_lastRectLogTick > 1000)
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                now - s_lastRectLogTick > 1000)
             {
                 s_lastRectLogTick = now;
                 WriteLogFmt("[SuperBtnRect] src=%s btn=(%d,%d,%d,%d) panel=(%d,%d)",

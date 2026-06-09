@@ -159,6 +159,10 @@ __declspec(naked) static void hkSkillReleaseClassifierB2F370Naked()
         add esp, 4
         popad
 
+        mov eax, dword ptr [g_BlockSkillReleaseB2F370]
+        test eax, eax
+        jne block_release
+
         mov eax, dword ptr [g_ClassifierOverrideSkillId]
         test eax, eax
         je continue_original
@@ -167,6 +171,12 @@ __declspec(naked) static void hkSkillReleaseClassifierB2F370Naked()
 
     continue_original:
         jmp [oSkillReleaseClassifierB2F370]
+
+    block_release:
+        mov dword ptr [g_BlockSkillReleaseB2F370], 0
+        mov dword ptr [g_ClassifierOverrideSkillId], 0
+        xor eax, eax
+        ret 10h
     }
 }
 

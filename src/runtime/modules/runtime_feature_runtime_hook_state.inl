@@ -391,6 +391,7 @@ static StatusBarObservedBuffSlot g_StatusBarObservedBuffSlots[9] = {};
 static bool g_StatusBarBuffSlotHooksInstalled = false;
 static volatile DWORD g_ClassifierOverrideSkillId = 0;
 static volatile DWORD g_ForcedNativeReleaseJump = 0;
+static volatile DWORD g_BlockSkillReleaseB2F370 = 0;
 static void hkExternalPotentialWriteNaked();
 static void hkExternalPotentialClearNaked();
 static bool PatchExternalPotentialIncreaseStub(BYTE* stubTarget);

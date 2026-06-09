@@ -1,5 +1,6 @@
 static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
 {
+    g_BlockSkillReleaseB2F370 = 0;
     int overrideSkillId = 0;
     if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
     {
@@ -9,6 +10,13 @@ static void __cdecl hkSkillReleaseClassifierB2F370Dispatch(int skillId)
         {
             WriteLogFmt("[SkillReleaseHook] B2F370 echo native-only skillId=%d", skillId);
         }
+        return;
+    }
+
+    if (!SkillOverlayBridgeTryEnterNativeReleaseCooldown(skillId))
+    {
+        g_ClassifierOverrideSkillId = 0;
+        g_BlockSkillReleaseB2F370 = 1;
         return;
     }
 

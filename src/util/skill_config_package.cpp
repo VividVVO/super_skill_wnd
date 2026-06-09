@@ -62,9 +62,11 @@ namespace
         std::wstring packagePath;
         std::wstring passwordSignature;
         bool runtimePasswordPending = false;
+        DWORD pendingRetryTick = 0;
         PackageStamp stamp;
         bool packageLoaded = false;
         bool packageAttempted = false;
+        bool physicalFallbackBlockedLogged = false;
         std::vector<PackageEntry> entries;
         std::map<std::wstring, size_t> entryIndexByPath;
     };
@@ -981,13 +983,59 @@ namespace
     {
         const std::wstring directory = ssw::path::TrimTrailingSlash(skillConfigDir);
         const std::wstring packagePath = ssw::path::Combine(directory, kPackageFileName);
+        {
+            PackageStateLockGuard guard;
+            if (g_state.initialized &&
+                g_state.skillConfigDir == directory &&
+                g_state.packagePath == packagePath &&
+                g_state.packageAttempted &&
+                !g_state.stamp.exists &&
+                !g_state.packageLoaded)
+            {
+                return false;
+            }
+        }
+
         WIN32_FILE_ATTRIBUTE_DATA packageProbeData = {};
         if (packagePath.empty() ||
             !::GetFileAttributesExW(packagePath.c_str(), GetFileExInfoStandard, &packageProbeData))
         {
+            {
+                PackageStateLockGuard guard;
+                g_state.initialized = true;
+                g_state.skillConfigDir = directory;
+                g_state.packagePath = packagePath;
+                g_state.passwordSignature.clear();
+                g_state.runtimePasswordPending = false;
+                g_state.pendingRetryTick = 0;
+                g_state.stamp = PackageStamp{};
+                g_state.packageLoaded = false;
+                g_state.packageAttempted = true;
+                g_state.physicalFallbackBlockedLogged = false;
+                g_state.entries.clear();
+                g_state.entryIndexByPath.clear();
+            }
             WriteLogFmt("[InitStage] LoadPackageForDirectory skip missing package path=%s",
                 WideToUtf8String(packagePath).c_str());
             return false;
+        }
+
+        {
+            PackageStateLockGuard guard;
+            if (g_state.initialized &&
+                g_state.skillConfigDir == directory &&
+                g_state.packagePath == packagePath &&
+                g_state.runtimePasswordPending &&
+                !g_state.packageLoaded)
+            {
+                const DWORD nowTick = ::GetTickCount();
+                if (g_state.pendingRetryTick != 0 &&
+                    nowTick - g_state.pendingRetryTick < 5000)
+                {
+                    return false;
+                }
+                g_state.pendingRetryTick = nowTick;
+            }
         }
 
         PasswordCandidateSet passwordCandidates = BuildPasswordCandidateSet();
@@ -1001,9 +1049,11 @@ namespace
                 g_state.packagePath = packagePath;
                 g_state.passwordSignature = passwordCandidates.signature;
                 g_state.runtimePasswordPending = true;
+                g_state.pendingRetryTick = ::GetTickCount();
                 g_state.stamp = PackageStamp{};
                 g_state.packageLoaded = false;
                 g_state.packageAttempted = false;
+                g_state.physicalFallbackBlockedLogged = false;
                 g_state.entries.clear();
                 g_state.entryIndexByPath.clear();
             }
@@ -1026,9 +1076,11 @@ namespace
                 g_state.packagePath = packagePath;
                 g_state.passwordSignature = passwordCandidates.signature;
                 g_state.runtimePasswordPending = true;
+                g_state.pendingRetryTick = ::GetTickCount();
                 g_state.stamp = PackageStamp{};
                 g_state.packageLoaded = false;
                 g_state.packageAttempted = true;
+                g_state.physicalFallbackBlockedLogged = false;
                 g_state.entries.clear();
                 g_state.entryIndexByPath.clear();
             }
@@ -1056,9 +1108,11 @@ namespace
             g_state.packagePath = newState.packagePath;
             g_state.passwordSignature = newState.passwordSignature;
             g_state.runtimePasswordPending = false;
+            g_state.pendingRetryTick = 0;
             g_state.stamp = currentStamp;
             g_state.packageLoaded = false;
             g_state.packageAttempted = true;
+            g_state.physicalFallbackBlockedLogged = false;
             g_state.entries.clear();
             g_state.entryIndexByPath.clear();
         };
@@ -1077,9 +1131,11 @@ namespace
                 g_state.packagePath = newState.packagePath;
                 g_state.passwordSignature = newState.passwordSignature;
                 g_state.runtimePasswordPending = false;
+                g_state.pendingRetryTick = 0;
                 g_state.stamp = PackageStamp{};
                 g_state.packageLoaded = false;
                 g_state.packageAttempted = true;
+                g_state.physicalFallbackBlockedLogged = false;
                 g_state.entries.clear();
                 g_state.entryIndexByPath.clear();
             }
@@ -1165,9 +1221,11 @@ namespace
             g_state.packagePath = newState.packagePath;
             g_state.passwordSignature = newState.passwordSignature;
             g_state.runtimePasswordPending = false;
+            g_state.pendingRetryTick = 0;
             g_state.stamp = currentStamp;
             g_state.packageLoaded = true;
             g_state.packageAttempted = true;
+            g_state.physicalFallbackBlockedLogged = false;
             g_state.entries.swap(entries);
             g_state.entryIndexByPath.clear();
             for (size_t i = 0; i < g_state.entries.size(); ++i)
@@ -1292,9 +1350,11 @@ void InvalidateSkillConfigPackage()
         g_state.packagePath.empty() &&
         g_state.passwordSignature.empty() &&
         !g_state.runtimePasswordPending &&
+        g_state.pendingRetryTick == 0 &&
         !g_state.stamp.exists &&
         !g_state.packageLoaded &&
         !g_state.packageAttempted &&
+        !g_state.physicalFallbackBlockedLogged &&
         g_state.entries.empty() &&
         g_state.entryIndexByPath.empty();
 
@@ -1310,12 +1370,24 @@ void InvalidateSkillConfigPackage()
     g_state.packagePath.clear();
     g_state.passwordSignature.clear();
     g_state.runtimePasswordPending = false;
+    g_state.pendingRetryTick = 0;
     g_state.stamp = PackageStamp{};
     g_state.packageLoaded = false;
     g_state.packageAttempted = false;
+    g_state.physicalFallbackBlockedLogged = false;
     g_state.entries.clear();
     g_state.entryIndexByPath.clear();
     WriteLog("[InitStage] InvalidateSkillConfigPackage cleared");
+}
+
+bool IsSkillConfigPackagePhysicalFallbackBlocked(const std::wstring& absolutePath)
+{
+    const std::wstring directory = ssw::path::Parent(absolutePath);
+    if (directory.empty() || !ShouldPreferPackageForDirectory(directory))
+        return false;
+
+    const std::wstring relativePath = GetRelativePath(directory, absolutePath);
+    return IsPackageCoveredRelativePath(relativePath);
 }
 
 bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<unsigned char>& outBytes)
@@ -1336,15 +1408,32 @@ bool TryReadSkillConfigBinaryFile(const std::wstring& absolutePath, std::vector<
         return true;
 
     if (!directory.empty() && IsRuntimePasswordPendingForDirectory(directory))
+    {
         return false;
+    }
 
     if (packagePreferred)
     {
         if (IsPackageCoveredRelativePath(relativePath))
         {
-            WriteLogFmt("[SkillPack] WARN package-owned read failed path=%s relative=%ls",
-                WideToUtf8String(absolutePath).c_str(),
-                relativePath.c_str());
+            bool shouldLog = false;
+            {
+                PackageStateLockGuard guard;
+                if (g_state.initialized &&
+                    g_state.skillConfigDir == directory &&
+                    !g_state.packageLoaded &&
+                    !g_state.physicalFallbackBlockedLogged)
+                {
+                    g_state.physicalFallbackBlockedLogged = true;
+                    shouldLog = true;
+                }
+            }
+            if (shouldLog)
+            {
+                WriteLogFmt("[SkillPack] ERROR package-owned physical fallback blocked path=%s relative=%ls",
+                    WideToUtf8String(absolutePath).c_str(),
+                    relativePath.c_str());
+            }
             return false;
         }
     }

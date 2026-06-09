@@ -1,8 +1,27 @@
 #pragma once
 
-#include "imgui.h"
+#include <cstdint>
 #include <string>
 #include <vector>
+
+struct RetroVec2 {
+    float x = 0.0f;
+    float y = 0.0f;
+
+    RetroVec2() = default;
+    RetroVec2(float xValue, float yValue)
+        : x(xValue), y(yValue)
+    {
+    }
+};
+
+inline uint32_t RetroColor32(int r, int g, int b, int a)
+{
+    return ((uint32_t)(a & 0xFF) << 24) |
+        ((uint32_t)(b & 0xFF) << 16) |
+        ((uint32_t)(g & 0xFF) << 8) |
+        (uint32_t)(r & 0xFF);
+}
 
 struct SkillEntry {
     int skillId = 0;
@@ -13,7 +32,7 @@ struct SkillEntry {
     int maxLevel = 0;
     int upgradeState = 0;
     bool canUpgrade = false;
-    ImU32 iconColor = IM_COL32(120, 120, 120, 255);
+    uint32_t iconColor = RetroColor32(120, 120, 120, 255);
     int iconId = 0;
     bool enabled = true;
     bool isCustomInjected = false;
@@ -103,7 +122,7 @@ struct RetroSkillRuntimeState {
     bool isDraggingSkill = false;
     int dragSkillTab = -1;
     int dragSkillIndex = -1;
-    ImVec2 dragSkillGrabOffset = ImVec2(0.0f, 0.0f);
+    RetroVec2 dragSkillGrabOffset = RetroVec2(0.0f, 0.0f);
     bool dragSkillStartedThisFrame = false;
     bool dragSkillIsClickMode = false;  // true=click-to-drag, false=hold-drag / release-drop
 

@@ -1244,6 +1244,7 @@ static HRESULT __stdcall hkD3D8Present(void *pDevice8,
                 SuperD3D8OverlaySetSuperButtonRect(hasOverlaySuperBtnRect ? &overlaySuperBtnRect : nullptr);
             }
 
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
             {
                 static DWORD s_lastD3D8OverlayStateLogTick = 0;
                 DWORD now = GetTickCount();

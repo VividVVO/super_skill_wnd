@@ -175,9 +175,9 @@ static const bool ENABLE_PRESENT_NATIVE_CHILD_UPDATE = false; // v10.4+: native 
 static const bool ENABLE_REFRESH_NATIVE_CHILD_UPDATE = false; // v10.6: native child 不再在 refresh hook 中高频搬运，优先消除拖动抽搐
 static const char* SAVE_STATE_PATH = "G:\\code\\c++\\SuperSkillWnd\\skill\\save_state.json";
 #if defined(SSW_ENABLE_SECOND_CHILD_CARRIER_PROBE_RUNTIME)
-static const char* BUILD_MARKER = "v23.77-2026-05-24-exclude-jaguar-mount-runtime";
+static const char* BUILD_MARKER = "v23.99-2026-06-08-buff-offset-hotpath-fix";
 #else
-static const char* BUILD_MARKER = "v23.77-2026-05-24-exclude-jaguar-mount-runtime";
+static const char* BUILD_MARKER = "v23.99-2026-06-08-buff-offset-hotpath-fix";
 #endif
 
 static bool UseImguiOverlayPanelForMode(bool isD3D8Mode)
@@ -265,6 +265,7 @@ static bool WaitForSkillConfigRuntimePasswordIfNeeded()
     uintptr_t runtimePasswordAddress = probe.runtimePasswordAddress;
     DWORD lastLoggedRaw = probe.runtimePasswordRaw;
     const DWORD waitStartTick = GetTickCount();
+    const DWORD maxRuntimePasswordWaitMs = 10000;
     DWORD nextStatusLogTick = waitStartTick;
     DWORD nextRescanTick = waitStartTick;
 
@@ -290,6 +291,18 @@ static bool WaitForSkillConfigRuntimePasswordIfNeeded()
         }
 
         const DWORD nowTick = GetTickCount();
+        const DWORD elapsedMs = nowTick - waitStartTick;
+        if (elapsedMs >= maxRuntimePasswordWaitMs)
+        {
+            WriteLogFmt(
+                "[InitStage] SSP gate timeout: continue to fail-closed package load elapsed=%u ms addr=0x%08X raw=0x%08X plainMarker=%d",
+                elapsedMs,
+                static_cast<DWORD>(runtimePasswordAddress),
+                lastLoggedRaw,
+                probe.plainConfigPresent ? 1 : 0);
+            return true;
+        }
+
         if (runtimePasswordAddress == 0 || nowTick - nextRescanTick >= 2000)
         {
             ssw::skillpack::SkillConfigRuntimePasswordProbe refreshedProbe = {};
@@ -317,7 +330,7 @@ static bool WaitForSkillConfigRuntimePasswordIfNeeded()
         {
             WriteLogFmt(
                 "[InitStage] SSP gate waiting elapsed=%u ms addr=0x%08X raw=0x%08X plainMarker=%d",
-                nowTick - waitStartTick,
+                elapsedMs,
                 static_cast<DWORD>(runtimePasswordAddress),
                 lastLoggedRaw,
                 probe.plainConfigPresent ? 1 : 0);
@@ -554,7 +567,7 @@ static DWORD WINAPI InitThread(LPVOID)
     g_IsD3D8Mode = installResult.isD3D8Mode;
     g_SuperChildHooksReady = installResult.superChildHooksReady;
 
-    WriteLogFmt("[Build] routeB_hooks_ready=%d imgui_overlay=%d d3d8=%d",
+    WriteLogFmt("[Build] routeB_hooks_ready=%d imgui_overlay=%d d3d8=%d d3d8_ui_rollback=1 d3d8_buff_fastpath=1",
                 g_SuperChildHooksReady ? 1 : 0,
                 UseImguiOverlayPanelForMode(g_IsD3D8Mode) ? 1 : 0,
                 g_IsD3D8Mode ? 1 : 0);

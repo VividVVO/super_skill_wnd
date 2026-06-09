@@ -136,19 +136,22 @@ static char __cdecl hkNativeCursorStateSetHandler(uintptr_t thisPtr, unsigned in
 
     SkillOverlayBridgeSetObservedNativeCursorState(currentState);
 
-    static int s_lastLoggedState = -9999;
-    static uintptr_t s_lastLoggedHandle = 0;
-    if (currentState != s_lastLoggedState ||
-        currentHandle != s_lastLoggedHandle)
+    if (EnableUiObservationDiagnosticLogs())
     {
-        s_lastLoggedState = currentState;
-        s_lastLoggedHandle = currentHandle;
-        WriteLogFmt("[ObservedCursorState] req=%u current=%d manager=0x%08X handle=0x%08X result=%d",
-            requestedState,
-            currentState,
-            (DWORD)thisPtr,
-            (DWORD)currentHandle,
-            (int)result);
+        static int s_lastLoggedState = -9999;
+        static uintptr_t s_lastLoggedHandle = 0;
+        if (currentState != s_lastLoggedState ||
+            currentHandle != s_lastLoggedHandle)
+        {
+            s_lastLoggedState = currentState;
+            s_lastLoggedHandle = currentHandle;
+            WriteLogFmt("[ObservedCursorState] req=%u current=%d manager=0x%08X handle=0x%08X result=%d",
+                requestedState,
+                currentState,
+                (DWORD)thisPtr,
+                (DWORD)currentHandle,
+                (int)result);
+        }
     }
 
     return result;
@@ -557,7 +560,7 @@ static void __cdecl hkApplyLocalIndependentPotentialSkillLevelDisplay(uintptr_t 
 {
     if (!targetPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(targetPtr), sizeof(int)))
         return;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(0x88))
         return;
     if (!ShouldApplyLocalIndependentPotentialBurst(targetPtr, &g_LocalIndependentPotentialSkillLevelLastTarget, &g_LocalIndependentPotentialSkillLevelLastTick))
         return;
@@ -585,7 +588,8 @@ static void __cdecl hkApplyLocalIndependentPotentialDamageDisplay(
 {
     (void)option31Ptr;
 
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    const int relevantOffsets[] = { 0x78, 0xAC, 0xC4, 0xA0 };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(relevantOffsets, ARRAYSIZE(relevantOffsets)))
         return;
 
     const uintptr_t key = critRatePtr ^ (option31Ptr << 1) ^ (damagePtr << 2) ^ (bossDamagePtr << 3) ^ (ignoreDefensePtr << 4);
@@ -642,7 +646,8 @@ static void __cdecl hkApplyLocalIndependentPotentialPercentQuadDisplay(
     uintptr_t dexPtr,
     uintptr_t lukPtr)
 {
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    const int relevantOffsets[] = { 0x48, 0x50, 0x4C, 0x54 };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(relevantOffsets, ARRAYSIZE(relevantOffsets)))
         return;
 
     const uintptr_t key = strPtr ^ (intPtr << 1) ^ (dexPtr << 2) ^ (lukPtr << 3);
@@ -696,13 +701,13 @@ static void __cdecl hkApplyLocalIndependentPotentialPercentFullDisplay(uintptr_t
 {
     if (!valuesPtr || SafeIsBadWritePtr(reinterpret_cast<void*>(valuesPtr), 6 * sizeof(DWORD)))
         return;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    const int offsets[] = { 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(offsets, ARRAYSIZE(offsets)))
         return;
     if (!ShouldApplyLocalIndependentPotentialBurst(valuesPtr, &g_LocalIndependentPotentialPercentFullLastKey, &g_LocalIndependentPotentialPercentFullLastTick))
         return;
 
     DWORD *values = reinterpret_cast<DWORD*>(valuesPtr);
-    const int offsets[] = { 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C };
     int appliedValues[6] = {};
     for (int i = 0; i < 6; ++i)
     {
@@ -736,12 +741,6 @@ static void __cdecl hkApplyLocalIndependentPotentialFlatBasicDisplay(uintptr_t t
 {
     if (!thisPtr)
         return;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
-        return;
-    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatBasicLastKey, &g_LocalIndependentPotentialFlatBasicLastTick))
-        return;
-
-    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
     const struct
     {
         size_t keyIndex;
@@ -754,6 +753,13 @@ static void __cdecl hkApplyLocalIndependentPotentialFlatBasicDisplay(uintptr_t t
         { 24, 0x20 }, // MAXHP
         { 27, 0x24 }, // MAXMP
     };
+    const int relevantOffsets[] = { 0x08, 0x0C, 0x10, 0x14, 0x20, 0x24 };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(relevantOffsets, ARRAYSIZE(relevantOffsets)))
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatBasicLastKey, &g_LocalIndependentPotentialFlatBasicLastTick))
+        return;
+
+    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
 
     int appliedCount = 0;
     for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
@@ -788,12 +794,6 @@ static void __cdecl hkApplyLocalIndependentPotentialFlatExtendedDisplay(uintptr_
 {
     if (!thisPtr)
         return;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
-        return;
-    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatExtendedLastKey, &g_LocalIndependentPotentialFlatExtendedLastTick))
-        return;
-
-    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
     const struct
     {
         size_t keyIndex;
@@ -812,6 +812,13 @@ static void __cdecl hkApplyLocalIndependentPotentialFlatExtendedDisplay(uintptr_
         { 1736,0xD0 }, // TER
         { 1748,0xD4 }, // ASR
     };
+    const int relevantOffsets[] = { 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0x40, 0x44, 0xC8, 0xCC, 0xD0, 0xD4 };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(relevantOffsets, ARRAYSIZE(relevantOffsets)))
+        return;
+    if (!ShouldApplyLocalIndependentPotentialBurst(thisPtr, &g_LocalIndependentPotentialFlatExtendedLastKey, &g_LocalIndependentPotentialFlatExtendedLastTick))
+        return;
+
+    DWORD *values = reinterpret_cast<DWORD*>(thisPtr);
 
     int appliedCount = 0;
     for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
@@ -1023,6 +1030,14 @@ static int __fastcall hkAbilityRedExtendedAggregateFunction(
     DWORD arg3)
 {
     (void)edxUnused;
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    if (!wantDiagnosticLog)
+    {
+        return oAbilityRedExtendedAggregateFn
+            ? oAbilityRedExtendedAggregateFn(thisPtr, edxUnused, arg1, arg2, arg3)
+            : 0;
+    }
+
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     DWORD before[6] = {};
     DWORD after[6] = {};
@@ -1525,11 +1540,12 @@ static LONG __cdecl hkMovementOutputClampComputeB93B80(
         (contextualPlayerMountReadable && contextualPlayerMountItemId <= 0) ||
         (!contextualPlayerMountReadable && currentUserMountReadable && currentUserMountItemId <= 0) ||
         (!contextualPlayerMountReadable && !currentUserMountReadable && !hasMountedRawSample);
+    const int movementDisplayOffsets[] = { 0x30, 0x34 };
     const bool shouldClampPlayerMovementOutput =
         !enablePlayerMovement &&
         isOnFootMovementContext &&
         (enableMountMovement ||
-         SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses());
+         SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(movementDisplayOffsets, ARRAYSIZE(movementDisplayOffsets)));
 
     MountedMovementOverride mountedRawOverride = {};
     const bool shouldRaiseFromMountedRaw =
@@ -1739,6 +1755,9 @@ static void ObserveAbilityRedSiblingCalculator(
     uintptr_t thisValue,
     int resultValue)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
+
     const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
     if (!ShouldLogAbilityRedFinalCalculator(
             lastCaller,
@@ -1875,7 +1894,7 @@ static DWORD __cdecl hkAdjustAbilityRedDiff84C470PreSub(
     DWORD sumAfterAdds)
 {
     DWORD adjustedSum = sumAfterAdds;
-    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
+    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(0x44) ? 1 : 0;
     if (!activeState)
         g_AbilityRedBaseSumInactive9F7546 = sumAfterAdds;
 
@@ -1981,7 +2000,7 @@ static DWORD __cdecl hkAdjustAbilityRedBaseSumByLocalDelta(
 {
     (void)frameEbp;
 
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(deltaOffset))
         return sumAfterAdds;
 
     const int localDelta = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(deltaOffset);
@@ -2015,6 +2034,8 @@ static bool HasPositiveLocalIndependentPotentialDeltaAny(const int* offsets, siz
 static bool HasPositiveLocalIndependentPotentialPrimaryDelta()
 {
     const int offsets[] = { 0x08, 0x0C, 0x10, 0x14 };
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(offsets, ARRAYSIZE(offsets)))
+        return false;
     return HasPositiveLocalIndependentPotentialDeltaAny(offsets, ARRAYSIZE(offsets));
 }
 
@@ -2147,7 +2168,10 @@ static DWORD __cdecl hkAdjustAbilityRedBaseSumBySiteBaseline(
 {
     (void)frameEbp;
 
-    const bool active = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses();
+    const int primaryOffsets[] = { 0x08, 0x0C, 0x10, 0x14 };
+    const bool hasDirectDelta = SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(deltaOffset);
+    const bool hasPrimaryDelta = SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(primaryOffsets, ARRAYSIZE(primaryOffsets));
+    const bool active = hasDirectDelta || hasPrimaryDelta;
     DWORD* inactiveBaselineSlot = GetAbilityRedInactiveBaselineSlot(siteId);
     if (!active)
     {
@@ -2184,7 +2208,9 @@ static bool HasPositiveLocalIndependentPotentialDeltaAny(const int* offsets, siz
 {
     if (!offsets || count == 0)
         return false;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    if (count > 256)
+        return false;
+    if (!SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(offsets, static_cast<int>(count)))
         return false;
 
     for (size_t i = 0; i < count; ++i)
@@ -2461,6 +2487,9 @@ static void ObserveAbilityRedBakeWrite(
     size_t srcStartOffset,
     size_t srcEndOffset)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
+
     const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
     const short rawShort = (short)(rawEax & 0xFFFF);
     const int rawDelta = (int)rawShort;
@@ -2544,6 +2573,9 @@ static void ObserveAbilityRedBake198Site(
     int auxValue,
     int sumValue)
 {
+    if (!EnableAbilityRedDiagnosticLogs())
+        return;
+
     const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
 
     int prior198 = 0;
@@ -2871,6 +2903,58 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     DWORD arg7)
 {
     (void)edxUnused;
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    const int aggregatePatchOffsets[] = { 0x30, 0x34, 0x38, 0x3C };
+    const bool hasAggregatePatchDelta = SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(
+        aggregatePatchOffsets,
+        ARRAYSIZE(aggregatePatchOffsets));
+
+    if (!wantDiagnosticLog)
+    {
+        const int resultValue = oAbilityRedMasterAggregateFn
+            ? oAbilityRedMasterAggregateFn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+            : 0;
+
+        if (thisPtr && hasAggregatePatchDelta)
+        {
+            const struct
+            {
+                size_t keyIndex;
+                int deltaOffset;
+            } targets[] = {
+                { 159, 0x30 },
+                { 171, 0x34 },
+                { 57, 0x38 },
+                { 87, 0x3C },
+            };
+
+            DWORD *tripletBase = reinterpret_cast<DWORD*>(thisPtr);
+            for (int i = 0; i < (int)ARRAYSIZE(targets); ++i)
+            {
+                const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(targets[i].deltaOffset);
+                if (delta == 0)
+                    continue;
+
+                int currentValue = 0;
+                if (!ReadEncryptedTripletValue(tripletBase, targets[i].keyIndex, &currentValue))
+                    continue;
+
+                int targetValue = currentValue + delta;
+                if (targets[i].deltaOffset == 0x30 || targets[i].deltaOffset == 0x34)
+                {
+                    if (targetValue < 0)
+                        targetValue = 0;
+                    if (targetValue > 9999)
+                        targetValue = 9999;
+                }
+                if (currentValue != targetValue)
+                    WriteEncryptedTripletValue(tripletBase, targets[i].keyIndex, targetValue);
+            }
+        }
+
+        return resultValue;
+    }
+
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     DWORD before3[6] = {};
     DWORD before4[6] = {};
@@ -2927,7 +3011,7 @@ static int __fastcall hkAbilityRedMasterAggregateFunction(
     bool patchedMatk = false;
     bool patchedSpeed = false;
     bool patchedJump = false;
-    if (thisPtr && SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    if (thisPtr && hasAggregatePatchDelta)
     {
         // Keep upstream display-prep observe-only, but patch the final aggregate object
         // so attack-range and movement consumers read local display-only deltas.
@@ -3095,7 +3179,8 @@ static int AdjustAbilityRedFinalDisplayValue(int resultValue, int deltaOffset, i
 {
     if (outDelta)
         *outDelta = 0;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(deltaOffset))
         return resultValue;
 
     const int delta = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(deltaOffset);
@@ -3124,18 +3209,22 @@ static int __fastcall hkAbilityRedFinalCalc84BE40(
     DWORD arg7)
 {
     (void)edxUnused;
-    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
-    const DWORD args[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    const DWORD callerRet = wantDiagnosticLog ? (DWORD)(uintptr_t)_ReturnAddress() : 0;
     DWORD ptrMaskBefore = 0;
     DWORD ptrBefore[7] = {};
-    for (int i = 0; i < 7; ++i)
-        ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
 
     int before120 = 0, before150 = 0, before15C = 0;
     bool before120Ok = false, before150Ok = false, before15COk = false;
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x120, &before120, &before120Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x150, &before150, &before150Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x15C, &before15C, &before15COk);
+    if (wantDiagnosticLog)
+    {
+        const DWORD args[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+        for (int i = 0; i < 7; ++i)
+            ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x120, &before120, &before120Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x150, &before150, &before150Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x15C, &before15C, &before15COk);
+    }
 
     const int resultValue = oAbilityRedFinalCalc84BE40Fn
         ? oAbilityRedFinalCalc84BE40Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
@@ -3143,19 +3232,28 @@ static int __fastcall hkAbilityRedFinalCalc84BE40(
 
     DWORD ptrMaskAfter = 0;
     DWORD ptrAfter[7] = {};
-    for (int i = 0; i < 7; ++i)
-        ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
 
     int after120 = 0, after150 = 0, after15C = 0;
     bool after120Ok = false, after150Ok = false, after15COk = false;
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x120, &after120, &after120Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x150, &after150, &after150Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x15C, &after15C, &after15COk);
-
-    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
     int displayDelta = 0;
-    const int adjustedValue = AdjustAbilityRedFinalDisplayValue(resultValue, 0x40, &displayDelta);
-    if (ShouldLogAbilityRedFinalCalculator(
+    const int adjustedValue = AdjustAbilityRedFinalDisplayValue(
+        resultValue,
+        0x40,
+        wantDiagnosticLog ? &displayDelta : nullptr);
+    const int activeState = wantDiagnosticLog
+        ? (SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0)
+        : 0;
+    if (wantDiagnosticLog)
+    {
+        const DWORD args[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+        for (int i = 0; i < 7; ++i)
+            ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x120, &after120, &after120Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x150, &after150, &after150Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x15C, &after15C, &after15COk);
+    }
+    if (wantDiagnosticLog &&
+        ShouldLogAbilityRedFinalCalculator(
             &g_AbilityRedFinal84BE40LastCaller,
             &g_AbilityRedFinal84BE40LastThis,
             &g_AbilityRedFinal84BE40LastTick,
@@ -3200,19 +3298,23 @@ static int __fastcall hkAbilityRedFinalCalc84C470(
     DWORD arg6)
 {
     (void)edxUnused;
-    const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
-    const DWORD args[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    const DWORD callerRet = wantDiagnosticLog ? (DWORD)(uintptr_t)_ReturnAddress() : 0;
     DWORD ptrMaskBefore = 0;
     DWORD ptrBefore[6] = {};
-    for (int i = 0; i < 6; ++i)
-        ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
 
     int before198 = 0, before1C8 = 0, before1D4 = 0, before210 = 0;
     bool before198Ok = false, before1C8Ok = false, before1D4Ok = false, before210Ok = false;
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &before198, &before198Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &before1C8, &before1C8Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &before1D4, &before1D4Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &before210, &before210Ok);
+    if (wantDiagnosticLog)
+    {
+        const DWORD args[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+        for (int i = 0; i < 6; ++i)
+            ptrBefore[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskBefore);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &before198, &before198Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &before1C8, &before1C8Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &before1D4, &before1D4Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &before210, &before210Ok);
+    }
 
     const int resultValue = oAbilityRedFinalCalc84C470Fn
         ? oAbilityRedFinalCalc84C470Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5, arg6)
@@ -3220,20 +3322,29 @@ static int __fastcall hkAbilityRedFinalCalc84C470(
 
     DWORD ptrMaskAfter = 0;
     DWORD ptrAfter[6] = {};
-    for (int i = 0; i < 6; ++i)
-        ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
 
     int after198 = 0, after1C8 = 0, after1D4 = 0, after210 = 0;
     bool after198Ok = false, after1C8Ok = false, after1D4Ok = false, after210Ok = false;
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &after198, &after198Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &after1C8, &after1C8Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &after1D4, &after1D4Ok);
-    DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &after210, &after210Ok);
-
-    const int activeState = SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0;
     int displayDelta = 0;
-    const int adjustedValue = AdjustAbilityRedFinalDisplayValue(resultValue, 0x44, &displayDelta);
-    if (ShouldLogAbilityRedFinalCalculator(
+    const int adjustedValue = AdjustAbilityRedFinalDisplayValue(
+        resultValue,
+        0x44,
+        wantDiagnosticLog ? &displayDelta : nullptr);
+    const int activeState = wantDiagnosticLog
+        ? (SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0)
+        : 0;
+    if (wantDiagnosticLog)
+    {
+        const DWORD args[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+        for (int i = 0; i < 6; ++i)
+            ptrAfter[i] = ReadAbilityRedDisplayPointerValue(args[i], (1u << i), &ptrMaskAfter);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x198, &after198, &after198Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1C8, &after1C8, &after1C8Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x1D4, &after1D4, &after1D4Ok);
+        DecodeAbilityRedTripletAtOffset((uintptr_t)thisPtr, 0x210, &after210, &after210Ok);
+    }
+    if (wantDiagnosticLog &&
+        ShouldLogAbilityRedFinalCalculator(
             &g_AbilityRedFinal84C470LastCaller,
             &g_AbilityRedFinal84C470LastThis,
             &g_AbilityRedFinal84C470LastTick,
@@ -3278,6 +3389,14 @@ static int __fastcall hkAbilityRedFinalCalc84CA90(
     DWORD arg5)
 {
     (void)edxUnused;
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    if (!wantDiagnosticLog)
+    {
+        return oAbilityRedFinalCalc84CA90Fn
+            ? oAbilityRedFinalCalc84CA90Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5)
+            : 0;
+    }
+
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     const DWORD args[5] = { arg1, arg2, arg3, arg4, arg5 };
     DWORD ptrMaskBefore = 0;
@@ -3349,6 +3468,14 @@ static int __fastcall hkAbilityRedFinalCalc84CBD0(
     DWORD arg5)
 {
     (void)edxUnused;
+    const bool wantDiagnosticLog = EnableAbilityRedDiagnosticLogs();
+    if (!wantDiagnosticLog)
+    {
+        return oAbilityRedFinalCalc84CBD0Fn
+            ? oAbilityRedFinalCalc84CBD0Fn(thisPtr, edxUnused, arg1, arg2, arg3, arg4, arg5)
+            : 0;
+    }
+
     const DWORD callerRet = (DWORD)(uintptr_t)_ReturnAddress();
     const DWORD args[5] = { arg1, arg2, arg3, arg4, arg5 };
     DWORD ptrMaskBefore = 0;
@@ -3795,7 +3922,7 @@ static void __cdecl hkPatchAbilityRedSkillWrite49CA01Frame(DWORD *frame)
 {
     if (!frame)
         return;
-    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses())
+    if (!SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(0x44))
         return;
 
     const int mdefDelta = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x44);
@@ -3947,19 +4074,21 @@ static int __stdcall hkLocalIndependentPotentialSkillLevelDisplayFunction(int a1
     const int result = oLocalIndependentPotentialSkillLevelDisplayFn
         ? oLocalIndependentPotentialSkillLevelDisplayFn(a1, a2, a3)
         : 0;
-    static DWORD s_lastSkillLevelCallLogTick = 0;
-    const DWORD now = GetTickCount();
-    const int delta88 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x88);
-    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
-        now - s_lastSkillLevelCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs())
     {
-        s_lastSkillLevelCallLogTick = now;
-        WriteLogFmt("[IndependentBuffLocalDisplayCall] AE0A70 a1=0x%08X a2=%d out=0x%08X delta88=%d active=%d",
-            (DWORD)a1,
-            a2,
-            (DWORD)(uintptr_t)a3,
-            delta88,
-            SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        static DWORD s_lastSkillLevelCallLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastSkillLevelCallLogTick > 1000)
+        {
+            s_lastSkillLevelCallLogTick = now;
+            const int delta88 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x88);
+            WriteLogFmt("[IndependentBuffLocalDisplayCall] AE0A70 a1=0x%08X a2=%d out=0x%08X delta88=%d active=%d",
+                (DWORD)a1,
+                a2,
+                (DWORD)(uintptr_t)a3,
+                delta88,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        }
     }
     LogAbilityRedDecodedSnapshot("AE0A70");
     hkApplyLocalIndependentPotentialSkillLevelDisplay(reinterpret_cast<uintptr_t>(a3));
@@ -3977,28 +4106,30 @@ static LONG __cdecl hkLocalIndependentPotentialPercentQuadDisplayFunction(
     const LONG result = oLocalIndependentPotentialPercentQuadDisplayFn
         ? oLocalIndependentPotentialPercentQuadDisplayFn(a1, a2, a3, a4, a5, a6)
         : 0;
-    static DWORD s_lastPercentQuadCallLogTick = 0;
-    const DWORD now = GetTickCount();
-    const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x48);
-    const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x4C);
-    const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x50);
-    const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x54);
-    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
-        now - s_lastPercentQuadCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs())
     {
-        s_lastPercentQuadCallLogTick = now;
-        WriteLogFmt("[IndependentBuffLocalDisplayCall] 8538C0 a1=0x%08X a2=%d outs=[0x%08X,0x%08X,0x%08X,0x%08X] deltas=[%d,%d,%d,%d] active=%d",
-            (DWORD)a1,
-            a2,
-            (DWORD)(uintptr_t)a3,
-            (DWORD)(uintptr_t)a4,
-            (DWORD)(uintptr_t)a5,
-            (DWORD)(uintptr_t)a6,
-            d48,
-            d4C,
-            d50,
-            d54,
-            SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        static DWORD s_lastPercentQuadCallLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastPercentQuadCallLogTick > 1000)
+        {
+            s_lastPercentQuadCallLogTick = now;
+            const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x48);
+            const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x4C);
+            const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x50);
+            const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x54);
+            WriteLogFmt("[IndependentBuffLocalDisplayCall] 8538C0 a1=0x%08X a2=%d outs=[0x%08X,0x%08X,0x%08X,0x%08X] deltas=[%d,%d,%d,%d] active=%d",
+                (DWORD)a1,
+                a2,
+                (DWORD)(uintptr_t)a3,
+                (DWORD)(uintptr_t)a4,
+                (DWORD)(uintptr_t)a5,
+                (DWORD)(uintptr_t)a6,
+                d48,
+                d4C,
+                d50,
+                d54,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        }
     }
     LogAbilityRedDecodedSnapshot("8538C0");
     hkApplyLocalIndependentPotentialPercentQuadDisplay(
@@ -4019,30 +4150,32 @@ static LONG __fastcall hkLocalIndependentPotentialPercentFullDisplayFunction(
     const LONG result = oLocalIndependentPotentialPercentFullDisplayFn
         ? oLocalIndependentPotentialPercentFullDisplayFn(thisPtr, pExceptionObject, a3, a4)
         : 0;
-    static DWORD s_lastPercentFullCallLogTick = 0;
-    const DWORD now = GetTickCount();
-    const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x48);
-    const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x4C);
-    const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x50);
-    const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x54);
-    const int d58 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x58);
-    const int d5C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x5C);
-    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
-        now - s_lastPercentFullCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs())
     {
-        s_lastPercentFullCallLogTick = now;
-        WriteLogFmt("[IndependentBuffLocalDisplayCall] 853E10 this=0x%08X exc=0x%08X a3=%d out=0x%08X deltas=[%d,%d,%d,%d,%d,%d] active=%d",
-            (DWORD)(uintptr_t)thisPtr,
-            (DWORD)pExceptionObject,
-            a3,
-            (DWORD)(uintptr_t)a4,
-            d48,
-            d4C,
-            d50,
-            d54,
-            d58,
-            d5C,
-            SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        static DWORD s_lastPercentFullCallLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastPercentFullCallLogTick > 1000)
+        {
+            s_lastPercentFullCallLogTick = now;
+            const int d48 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x48);
+            const int d4C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x4C);
+            const int d50 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x50);
+            const int d54 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x54);
+            const int d58 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x58);
+            const int d5C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x5C);
+            WriteLogFmt("[IndependentBuffLocalDisplayCall] 853E10 this=0x%08X exc=0x%08X a3=%d out=0x%08X deltas=[%d,%d,%d,%d,%d,%d] active=%d",
+                (DWORD)(uintptr_t)thisPtr,
+                (DWORD)pExceptionObject,
+                a3,
+                (DWORD)(uintptr_t)a4,
+                d48,
+                d4C,
+                d50,
+                d54,
+                d58,
+                d5C,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        }
     }
     LogAbilityRedDecodedSnapshot("853E10");
     hkApplyLocalIndependentPotentialPercentFullDisplay(reinterpret_cast<uintptr_t>(a4));
@@ -4058,29 +4191,31 @@ static LONG __fastcall hkLocalIndependentPotentialFlatBasicDisplayFunction(
     const LONG result = oLocalIndependentPotentialFlatBasicDisplayFn
         ? oLocalIndependentPotentialFlatBasicDisplayFn(thisPtr, pExceptionObject, a3)
         : 0;
-    static DWORD s_lastFlatBasicCallLogTick = 0;
-    const DWORD now = GetTickCount();
-    const int d08 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x08);
-    const int d0C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x0C);
-    const int d10 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x10);
-    const int d14 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x14);
-    const int d20 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x20);
-    const int d24 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x24);
-    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
-        now - s_lastFlatBasicCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs())
     {
-        s_lastFlatBasicCallLogTick = now;
-        WriteLogFmt("[IndependentBuffLocalDisplayCall] 853B00 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d] active=%d",
-            (DWORD)(uintptr_t)thisPtr,
-            (DWORD)pExceptionObject,
-            a3,
-            d08,
-            d0C,
-            d10,
-            d14,
-            d20,
-            d24,
-            SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        static DWORD s_lastFlatBasicCallLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastFlatBasicCallLogTick > 1000)
+        {
+            s_lastFlatBasicCallLogTick = now;
+            const int d08 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x08);
+            const int d0C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x0C);
+            const int d10 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x10);
+            const int d14 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x14);
+            const int d20 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x20);
+            const int d24 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x24);
+            WriteLogFmt("[IndependentBuffLocalDisplayCall] 853B00 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d] active=%d",
+                (DWORD)(uintptr_t)thisPtr,
+                (DWORD)pExceptionObject,
+                a3,
+                d08,
+                d0C,
+                d10,
+                d14,
+                d20,
+                d24,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        }
     }
     LogAbilityRedDecodedSnapshot("853B00");
     hkApplyLocalIndependentPotentialFlatBasicDisplay(reinterpret_cast<uintptr_t>(thisPtr));
@@ -4096,30 +4231,32 @@ static LONG __fastcall hkLocalIndependentPotentialFlatExtendedDisplayFunction(
     const LONG result = oLocalIndependentPotentialFlatExtendedDisplayFn
         ? oLocalIndependentPotentialFlatExtendedDisplayFn(thisPtr, pExceptionObject, a3)
         : 0;
-    static DWORD s_lastFlatExtendedCallLogTick = 0;
-    const DWORD now = GetTickCount();
-    const int d28 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x28);
-    const int d2C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x2C);
-    const int d30 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x30);
-    const int d34 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x34);
-    const int d38 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x38);
-    const int d3C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x3C);
-    const int d40 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x40);
-    const int d44 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x44);
-    const int dC8 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xC8);
-    const int dCC = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xCC);
-    const int dD0 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xD0);
-    const int dD4 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xD4);
-    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
-        now - s_lastFlatExtendedCallLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs())
     {
-        s_lastFlatExtendedCallLogTick = now;
-        WriteLogFmt("[IndependentBuffLocalDisplayCall] 856830 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d] active=%d",
-            (DWORD)(uintptr_t)thisPtr,
-            (DWORD)pExceptionObject,
-            a3,
-            d28, d2C, d30, d34, d38, d3C, d40, d44, dC8, dCC, dD0, dD4,
-            SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        static DWORD s_lastFlatExtendedCallLogTick = 0;
+        const DWORD now = GetTickCount();
+        if (now - s_lastFlatExtendedCallLogTick > 1000)
+        {
+            s_lastFlatExtendedCallLogTick = now;
+            const int d28 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x28);
+            const int d2C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x2C);
+            const int d30 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x30);
+            const int d34 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x34);
+            const int d38 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x38);
+            const int d3C = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x3C);
+            const int d40 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x40);
+            const int d44 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0x44);
+            const int dC8 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xC8);
+            const int dCC = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xCC);
+            const int dD0 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xD0);
+            const int dD4 = SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(0xD4);
+            WriteLogFmt("[IndependentBuffLocalDisplayCall] 856830 this=0x%08X exc=0x%08X a3=%d deltas=[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d] active=%d",
+                (DWORD)(uintptr_t)thisPtr,
+                (DWORD)pExceptionObject,
+                a3,
+                d28, d2C, d30, d34, d38, d3C, d40, d44, dC8, dCC, dD0, dD4,
+                SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses() ? 1 : 0);
+        }
     }
     LogAbilityRedDecodedSnapshot("856830");
     hkApplyLocalIndependentPotentialFlatExtendedDisplay(reinterpret_cast<uintptr_t>(thisPtr));

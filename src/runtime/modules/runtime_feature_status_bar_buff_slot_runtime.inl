@@ -4,7 +4,7 @@ static void ApplyVirtualStatusBarBuffShift(uintptr_t statusBar, StatusBarObserve
         return;
 
     std::vector<IndependentBuffOverlayEntry> entries;
-    SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
+    SkillOverlayBridgeGetIndependentBuffOverlayEntriesLite(entries);
     const int virtualCount = (int)entries.size();
     if (virtualCount <= 0 || virtualCount >= 6)
         return;

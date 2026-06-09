@@ -8,7 +8,7 @@ namespace
         int level,
         int maxLevel,
         bool canUpgrade,
-        ImU32 iconColor)
+        uint32_t iconColor)
     {
         SkillEntry entry;
         entry.skillId = skillId;
@@ -36,23 +36,23 @@ namespace
 void ResetRetroSkillData(RetroSkillRuntimeState& state)
 {
     state.passiveSkills = {
-        MakeSampleSkill(1001001, "Attack Boost", 0, 1, false, IM_COL32(165, 108, 214, 255)),
-        MakeSampleSkill(1001002, "White Eye", 1, 1, false, IM_COL32(148,  74, 194, 255)),
-        MakeSampleSkill(1001003, "Extra Strike", 0, 1, false, IM_COL32(191, 107, 107, 255)),
-        MakeSampleSkill(1001004, "Spirit Duration", 1, 1, false, IM_COL32(217, 138, 226, 255)),
-        MakeSampleSkill(1001005, "Swift Soul", 0, 1, false, IM_COL32(226, 170, 170, 255)),
-        MakeSampleSkill(1001006, "Spirit Cooldown", 1, 1, false, IM_COL32(180, 132, 232, 255))
+        MakeSampleSkill(1001001, "Attack Boost", 0, 1, false, RetroColor32(165, 108, 214, 255)),
+        MakeSampleSkill(1001002, "White Eye", 1, 1, false, RetroColor32(148,  74, 194, 255)),
+        MakeSampleSkill(1001003, "Extra Strike", 0, 1, false, RetroColor32(191, 107, 107, 255)),
+        MakeSampleSkill(1001004, "Spirit Duration", 1, 1, false, RetroColor32(217, 138, 226, 255)),
+        MakeSampleSkill(1001005, "Swift Soul", 0, 1, false, RetroColor32(226, 170, 170, 255)),
+        MakeSampleSkill(1001006, "Spirit Cooldown", 1, 1, false, RetroColor32(180, 132, 232, 255))
     };
 
     state.activeSkills = {
-        MakeSampleSkill(2001001, "Five Elements", 0, 1, true, IM_COL32(203, 132,  67, 255)),
-        MakeSampleSkill(2001002, "Spirit Summon", 0, 1, true, IM_COL32( 92, 132, 194, 255)),
-        MakeSampleSkill(2001003, "Break Magic", 0, 1, true, IM_COL32(120, 164, 120, 255)),
-        MakeSampleSkill(2001004, "Element Burst", 0, 1, true, IM_COL32(180, 140, 200, 255)),
-        MakeSampleSkill(2001005, "Flash Step", 0, 1, true, IM_COL32(150, 100, 180, 255)),
-        MakeSampleSkill(2001006, "Guard Field", 0, 1, true, IM_COL32(100, 150, 200, 255)),
-        MakeSampleSkill(2001007, "Flame Storm", 0, 1, true, IM_COL32(200, 100, 100, 255)),
-        MakeSampleSkill(2001008, "Frozen World", 0, 1, true, IM_COL32(100, 200, 220, 255))
+        MakeSampleSkill(2001001, "Five Elements", 0, 1, true, RetroColor32(203, 132,  67, 255)),
+        MakeSampleSkill(2001002, "Spirit Summon", 0, 1, true, RetroColor32( 92, 132, 194, 255)),
+        MakeSampleSkill(2001003, "Break Magic", 0, 1, true, RetroColor32(120, 164, 120, 255)),
+        MakeSampleSkill(2001004, "Element Burst", 0, 1, true, RetroColor32(180, 140, 200, 255)),
+        MakeSampleSkill(2001005, "Flash Step", 0, 1, true, RetroColor32(150, 100, 180, 255)),
+        MakeSampleSkill(2001006, "Guard Field", 0, 1, true, RetroColor32(100, 150, 200, 255)),
+        MakeSampleSkill(2001007, "Flame Storm", 0, 1, true, RetroColor32(200, 100, 100, 255)),
+        MakeSampleSkill(2001008, "Frozen World", 0, 1, true, RetroColor32(100, 200, 220, 255))
     };
 
     state.activeTab = 0;
@@ -67,7 +67,7 @@ void ResetRetroSkillData(RetroSkillRuntimeState& state)
     state.isDraggingSkill = false;
     state.dragSkillTab = -1;
     state.dragSkillIndex = -1;
-    state.dragSkillGrabOffset = ImVec2(0.0f, 0.0f);
+    state.dragSkillGrabOffset = RetroVec2(0.0f, 0.0f);
     state.dragSkillStartedThisFrame = false;
 
     state.isPressingUiButton = false;

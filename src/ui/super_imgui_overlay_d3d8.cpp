@@ -90,6 +90,11 @@ namespace
     }
 
     bool TryFindIndependentBuffOverlaySkillIdAtPoint(int x, int y, int* outSkillId);
+    bool TryFindIndependentBuffOverlaySkillIdAtPointInEntries(
+        const std::vector<IndependentBuffOverlayEntry>& entries,
+        int x,
+        int y,
+        int* outSkillId);
 
     bool IsMouseMessage(UINT msg)
     {
@@ -119,6 +124,16 @@ namespace
     int ToImGuiMouseButton(UINT msg, WPARAM wParam)
     {
         return OverlayToImGuiMouseButton(msg, wParam);
+    }
+
+    double QpcElapsedMs(const LARGE_INTEGER& start, const LARGE_INTEGER& end)
+    {
+        static LARGE_INTEGER frequency = {};
+        if (frequency.QuadPart == 0)
+            QueryPerformanceFrequency(&frequency);
+        if (frequency.QuadPart <= 0)
+            return 0.0;
+        return (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)frequency.QuadPart;
     }
 
     bool GetClientMousePointFromMessage(HWND hwnd, UINT msg, LPARAM lParam, POINT* outPoint)
@@ -273,7 +288,9 @@ namespace
 
             static DWORD s_lastRejectedVecLogTick = 0;
             const DWORD rejectedNowTick = GetTickCount();
-            if (rejectedVec && rejectedNowTick - s_lastRejectedVecLogTick > 1000)
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                rejectedVec &&
+                rejectedNowTick - s_lastRejectedVecLogTick > 1000)
             {
                 s_lastRejectedVecLogTick = rejectedNowTick;
                 WriteLogFmt(
@@ -298,7 +315,8 @@ namespace
                 {
                     static DWORD s_lastFallbackVecLogTick = 0;
                     const DWORD nowTick = GetTickCount();
-                    if (nowTick - s_lastFallbackVecLogTick > 1000)
+                    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                        nowTick - s_lastFallbackVecLogTick > 1000)
                     {
                         s_lastFallbackVecLogTick = nowTick;
                         WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 fallbackVec off=0x%X vec=0x%08X count=%d",
@@ -322,7 +340,9 @@ namespace
 
                     static DWORD s_lastRejectedFallbackVecLogTick = 0;
                     const DWORD nowTick = GetTickCount();
-                    if (candidateVec && nowTick - s_lastRejectedFallbackVecLogTick > 1000)
+                    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                        candidateVec &&
+                        nowTick - s_lastRejectedFallbackVecLogTick > 1000)
                     {
                         s_lastRejectedFallbackVecLogTick = nowTick;
                         WriteLogFmt(
@@ -556,15 +576,18 @@ namespace
                         rawCount = *(int*)(vec - 4);
                 }
             }
-            WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 unavailable client=%dx%d origin=(%d,%d) addrReadable=%d wndMan=0x%08X vec=0x%08X rawCount=%d",
-                clientW,
-                clientH,
-                expectedOriginX,
-                expectedOriginY,
-                addrReadable ? 1 : 0,
-                (DWORD)wndMan,
-                (DWORD)vec,
-                rawCount);
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
+            {
+                WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 unavailable client=%dx%d origin=(%d,%d) addrReadable=%d wndMan=0x%08X vec=0x%08X rawCount=%d",
+                    clientW,
+                    clientH,
+                    expectedOriginX,
+                    expectedOriginY,
+                    addrReadable ? 1 : 0,
+                    (DWORD)wndMan,
+                    (DWORD)vec,
+                    rawCount);
+            }
 
             if (wndMan)
             {
@@ -585,16 +608,19 @@ namespace
                     TopLevelVectorCandidateStats stats = {};
                     AnalyzeTopLevelVectorCandidate(candidateVec, candidateCount, 16, &stats);
 
-                    WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 vecCandidate off=0x%X field=0x%08X vec=0x%08X count=%d sampled=%d readable=%d sane=%d windowish=%d firstWnd=0x%08X",
-                        CWNDMAN_TOPLEVEL_OFF + delta,
-                        (DWORD)fieldAddr,
-                        (DWORD)candidateVec,
-                        candidateCount,
-                        stats.sampledEntries,
-                        stats.readableEntries,
-                        stats.saneSizeEntries,
-                        stats.windowishEntries,
-                        (DWORD)stats.firstReadableWnd);
+                    if (EnableIndependentBuffOverlayDiagnosticLogs())
+                    {
+                        WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 vecCandidate off=0x%X field=0x%08X vec=0x%08X count=%d sampled=%d readable=%d sane=%d windowish=%d firstWnd=0x%08X",
+                            CWNDMAN_TOPLEVEL_OFF + delta,
+                            (DWORD)fieldAddr,
+                            (DWORD)candidateVec,
+                            candidateCount,
+                            stats.sampledEntries,
+                            stats.readableEntries,
+                            stats.saneSizeEntries,
+                            stats.windowishEntries,
+                            (DWORD)stats.firstReadableWnd);
+                    }
                 }
             }
             return;
@@ -602,14 +628,17 @@ namespace
 
         const int expectedCenterX = expectedOriginX + (SKILL_BAR_COLS * SKILL_BAR_SLOT_SIZE) / 2;
         const int expectedCenterY = expectedOriginY + (SKILL_BAR_ROWS * SKILL_BAR_SLOT_SIZE) / 2;
-        WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 scan client=%dx%d origin=(%d,%d) center=(%d,%d) topCount=%d",
-            clientW,
-            clientH,
-            expectedOriginX,
-            expectedOriginY,
-            expectedCenterX,
-            expectedCenterY,
-            topCount);
+        if (EnableIndependentBuffOverlayDiagnosticLogs())
+        {
+            WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 scan client=%dx%d origin=(%d,%d) center=(%d,%d) topCount=%d",
+                clientW,
+                clientH,
+                expectedOriginX,
+                expectedOriginY,
+                expectedCenterX,
+                expectedCenterY,
+                topCount);
+        }
 
         int logged = 0;
         for (int i = 0; i < topCount && logged < 20; ++i)
@@ -635,19 +664,22 @@ namespace
             const int dx = hasPos ? abs(centerX - expectedCenterX) : -1;
             const int dy = hasPos ? abs(centerY - expectedCenterY) : -1;
 
-            WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 cand index=%d wnd=0x%08X pos=%s hasPos=%d rect=(%d,%d,%d,%d) center=(%d,%d) delta=(%d,%d)",
-                i,
-                (DWORD)wnd,
-                posSource,
-                hasPos ? 1 : 0,
-                x,
-                y,
-                w,
-                h,
-                centerX,
-                centerY,
-                dx,
-                dy);
+            if (EnableIndependentBuffOverlayDiagnosticLogs())
+            {
+                WriteLogFmt("[IndependentBuffOverlayTopLevel] d3d8 cand index=%d wnd=0x%08X pos=%s hasPos=%d rect=(%d,%d,%d,%d) center=(%d,%d) delta=(%d,%d)",
+                    i,
+                    (DWORD)wnd,
+                    posSource,
+                    hasPos ? 1 : 0,
+                    x,
+                    y,
+                    w,
+                    h,
+                    centerX,
+                    centerY,
+                    dx,
+                    dy);
+            }
             ++logged;
         }
     }
@@ -738,12 +770,34 @@ namespace
 
         *outMetrics = NativeBuffSlotMetrics{};
 
+        static NativeBuffSlotMetrics s_cachedNativeBuffSlotMetrics = {};
+        static DWORD s_cachedNativeBuffSlotMetricsTick = 0;
+        static bool s_cachedNativeBuffSlotMetricsReady = false;
+        static bool s_cachedNativeBuffSlotMetricsResult = false;
+        const DWORD cacheNowTick = GetTickCount();
+        if (s_cachedNativeBuffSlotMetricsReady &&
+            cacheNowTick - s_cachedNativeBuffSlotMetricsTick <= 100)
+        {
+            *outMetrics = s_cachedNativeBuffSlotMetrics;
+            return s_cachedNativeBuffSlotMetricsResult;
+        }
+
+        auto finishNativeBuffSlotMetrics = [&](bool result) -> bool
+        {
+            s_cachedNativeBuffSlotMetrics = *outMetrics;
+            s_cachedNativeBuffSlotMetricsTick = GetTickCount();
+            s_cachedNativeBuffSlotMetricsReady = true;
+            s_cachedNativeBuffSlotMetricsResult = result;
+            return result;
+        };
+
         static DWORD s_lastNativeScanEarlyLogTick = 0;
-        const DWORD earlyNowTick = GetTickCount();
+        const DWORD earlyNowTick = cacheNowTick;
 
         if (SafeIsBadReadPtr((void*)ADDR_StatusBar, 4))
         {
-            if (earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
             {
                 s_lastNativeScanEarlyLogTick = earlyNowTick;
                 WriteLogFmt("[IndependentBuffOverlayNativeScan] d3d8 fail stage=global_ptr addr=0x%08X",
@@ -788,7 +842,8 @@ namespace
 
         if (!statusBar || SafeIsBadReadPtr((void*)statusBar, 0xB30 + 4))
         {
-            if (earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                earlyNowTick - s_lastNativeScanEarlyLogTick > 1000)
             {
                 s_lastNativeScanEarlyLogTick = earlyNowTick;
                 WriteLogFmt("[IndependentBuffOverlayNativeScan] d3d8 fail stage=status_bar_ptr statusBar=0x%08X readable=%d source=%s cached=0x%08X probeWnd=0x%08X probeXYWH=(%d,%d,%d,%d)",
@@ -861,7 +916,8 @@ namespace
         {
             static DWORD s_lastNativeScanFailLogTick = 0;
             const DWORD nowTick = GetTickCount();
-            if (nowTick - s_lastNativeScanFailLogTick > 1000)
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                nowTick - s_lastNativeScanFailLogTick > 1000)
             {
                 s_lastNativeScanFailLogTick = nowTick;
                 WriteLogFmt("[IndependentBuffOverlayNativeScan] d3d8 statusBar=0x%08X source=%s topWr=0x%02X topChild=0x%02X topVisible=0x%02X",
@@ -908,7 +964,8 @@ namespace
 
         static DWORD s_lastNativeScanOkLogTick = 0;
         const DWORD nowTick = GetTickCount();
-        if (nowTick - s_lastNativeScanOkLogTick > 1000)
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            nowTick - s_lastNativeScanOkLogTick > 1000)
         {
             s_lastNativeScanOkLogTick = nowTick;
             WriteLogFmt("[IndependentBuffOverlayNativeScan] d3d8 statusBar=0x%08X source=%s topWr=0x%02X topChild=0x%02X topVisible=0x%02X baseX=%d stepX=%d firstX=%d visibleCount=%d",
@@ -1124,7 +1181,8 @@ namespace
 
                 static DWORD s_lastSemanticLayoutLogTick = 0;
                 const DWORD nowTick = GetTickCount();
-                if (nowTick - s_lastSemanticLayoutLogTick > 1000)
+                if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                    nowTick - s_lastSemanticLayoutLogTick > 1000)
                 {
                     s_lastSemanticLayoutLogTick = nowTick;
                     std::string slotsText;
@@ -1243,7 +1301,8 @@ namespace
 
         std::vector<IndependentBuffOverlayEntry> localEntries;
         std::vector<IndependentBuffOverlayEntry>& entries = outEntries ? *outEntries : localEntries;
-        SkillOverlayBridgeGetIndependentBuffOverlayEntries(entries);
+        if (!outEntries || entries.empty())
+            SkillOverlayBridgeGetIndependentBuffOverlayEntriesLite(entries);
         if (entries.empty())
         {
             return false;
@@ -1260,24 +1319,16 @@ namespace
         return true;
     }
 
-    bool IsPointInsideIndependentBuffOverlay(int x, int y)
+    bool TryFindIndependentBuffOverlaySkillIdAtPointInEntries(
+        const std::vector<IndependentBuffOverlayEntry>& entries,
+        int x,
+        int y,
+        int* outSkillId)
     {
-        int skillId = 0;
-        return TryFindIndependentBuffOverlaySkillIdAtPoint(x, y, &skillId);
-    }
-
-    bool TryFindIndependentBuffOverlaySkillIdAtPoint(int x, int y, int* outSkillId)
-    {
-        RECT overlayRect = {};
-        std::vector<IndependentBuffOverlayEntry> entries;
-        if (!GetIndependentBuffOverlayRect(&overlayRect, &entries))
+        if (outSkillId)
+            *outSkillId = 0;
+        if (entries.empty())
             return false;
-
-        if (x < overlayRect.left || x >= overlayRect.right ||
-            y < overlayRect.top || y >= overlayRect.bottom)
-        {
-            return false;
-        }
 
         IndependentBuffOverlayLayout layout = {};
         if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
@@ -1300,6 +1351,46 @@ namespace
         return false;
     }
 
+    bool IsPointInsideIndependentBuffOverlay(int x, int y)
+    {
+        int skillId = 0;
+        return TryFindIndependentBuffOverlaySkillIdAtPoint(x, y, &skillId);
+    }
+
+    bool TryFindIndependentBuffOverlaySkillIdAtPoint(int x, int y, int* outSkillId)
+    {
+        RECT overlayRect = {};
+        std::vector<IndependentBuffOverlayEntry> entries;
+        if (!GetIndependentBuffOverlayRect(&overlayRect, &entries))
+            return false;
+
+        if (x < overlayRect.left || x >= overlayRect.right ||
+            y < overlayRect.top || y >= overlayRect.bottom)
+        {
+            return false;
+        }
+
+        return TryFindIndependentBuffOverlaySkillIdAtPointInEntries(entries, x, y, outSkillId);
+    }
+
+    bool TryGetFullIndependentBuffEntry(int skillId, IndependentBuffOverlayEntry* outEntry)
+    {
+        if (!outEntry || skillId <= 0)
+            return false;
+
+        std::vector<IndependentBuffOverlayEntry> fullEntries;
+        SkillOverlayBridgeGetIndependentBuffOverlayEntries(fullEntries);
+        for (size_t i = 0; i < fullEntries.size(); ++i)
+        {
+            if (fullEntries[i].skillId == skillId)
+            {
+                *outEntry = fullEntries[i];
+                return true;
+            }
+        }
+        return false;
+    }
+
     void RenderIndependentBuffOverlayBar(const std::vector<IndependentBuffOverlayEntry>& providedEntries)
     {
         std::vector<IndependentBuffOverlayEntry> entries = providedEntries;
@@ -1314,7 +1405,8 @@ namespace
 
         static DWORD s_lastRenderLogTick = 0;
         const DWORD nowTick = GetTickCount();
-        if (nowTick - s_lastRenderLogTick > 1000)
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            nowTick - s_lastRenderLogTick > 1000)
         {
             s_lastRenderLogTick = nowTick;
             WriteLogFmt("[IndependentBuffOverlayRender] d3d8 count=%d rect=(%d,%d,%d,%d) mode=%s explicitSlots=%d",
@@ -1407,16 +1499,27 @@ namespace
 
                 if (hovered)
                 {
+                    IndependentBuffOverlayEntry tooltipEntry = entry;
+                    if (tooltipEntry.name.empty() ||
+                        tooltipEntry.tooltipPreview.empty() ||
+                        tooltipEntry.tooltipDescription.empty() ||
+                        tooltipEntry.tooltipDetail.empty())
+                    {
+                        IndependentBuffOverlayEntry fullEntry = {};
+                        if (TryGetFullIndependentBuffEntry(entry.skillId, &fullEntry))
+                            tooltipEntry = fullEntry;
+                    }
+
                     SkillEntry tooltipSkill = {};
-                    tooltipSkill.skillId = entry.skillId;
-                    tooltipSkill.iconId = entry.iconSkillId > 0 ? entry.iconSkillId : entry.skillId;
-                    tooltipSkill.name = !entry.name.empty()
-                        ? entry.name
-                        : ResolveIndependentBuffDisplayName(entry.skillId);
-                    tooltipSkill.maxLevel = entry.maxLevel;
-                    tooltipSkill.tooltipPreview = entry.tooltipPreview;
-                    tooltipSkill.tooltipDescription = entry.tooltipDescription;
-                    tooltipSkill.tooltipDetail = entry.tooltipDetail;
+                    tooltipSkill.skillId = tooltipEntry.skillId;
+                    tooltipSkill.iconId = tooltipEntry.iconSkillId > 0 ? tooltipEntry.iconSkillId : tooltipEntry.skillId;
+                    tooltipSkill.name = !tooltipEntry.name.empty()
+                        ? tooltipEntry.name
+                        : ResolveIndependentBuffDisplayName(tooltipEntry.skillId);
+                    tooltipSkill.maxLevel = tooltipEntry.maxLevel;
+                    tooltipSkill.tooltipPreview = tooltipEntry.tooltipPreview;
+                    tooltipSkill.tooltipDescription = tooltipEntry.tooltipDescription;
+                    tooltipSkill.tooltipDetail = tooltipEntry.tooltipDetail;
                     RenderRetroBuffTooltipCard(tooltipSkill, g_overlay8.assets, scale);
                 }
 
@@ -1426,6 +1529,129 @@ namespace
         ImGui::End();
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(2);
+    }
+
+    void RenderIndependentBuffOverlayTooltipOnly(int skillId)
+    {
+        if (skillId <= 0)
+            return;
+
+        IndependentBuffOverlayEntry tooltipEntry = {};
+        if (!TryGetFullIndependentBuffEntry(skillId, &tooltipEntry))
+        {
+            tooltipEntry.skillId = skillId;
+            tooltipEntry.iconSkillId = skillId;
+            tooltipEntry.name = ResolveIndependentBuffDisplayName(skillId);
+        }
+
+        SkillEntry tooltipSkill = {};
+        tooltipSkill.skillId = tooltipEntry.skillId;
+        tooltipSkill.iconId = tooltipEntry.iconSkillId > 0 ? tooltipEntry.iconSkillId : tooltipEntry.skillId;
+        tooltipSkill.name = !tooltipEntry.name.empty()
+            ? tooltipEntry.name
+            : ResolveIndependentBuffDisplayName(tooltipEntry.skillId);
+        tooltipSkill.maxLevel = tooltipEntry.maxLevel;
+        tooltipSkill.tooltipPreview = tooltipEntry.tooltipPreview;
+        tooltipSkill.tooltipDescription = tooltipEntry.tooltipDescription;
+        tooltipSkill.tooltipDetail = tooltipEntry.tooltipDetail;
+        const float scale = (g_overlay8.mainScale > 0.0f) ? g_overlay8.mainScale : 1.0f;
+        RenderRetroBuffTooltipCard(tooltipSkill, g_overlay8.assets, scale);
+    }
+
+    D3D8Texture MakeD3D8TextureRef(UITexture* texture)
+    {
+        D3D8Texture result = {};
+        if (!texture || !texture->texture)
+            return result;
+        result.pTexture8 = texture->texture;
+        result.width = texture->width;
+        result.height = texture->height;
+        return result;
+    }
+
+    void DrawD3D8UiTexture(void* device8, UITexture* texture, float x, float y, float w, float h, DWORD color = 0xFFFFFFFF)
+    {
+        D3D8Texture textureRef = MakeD3D8TextureRef(texture);
+        if (!textureRef.pTexture8)
+            return;
+        D3D8_DrawTexturedQuad(device8, &textureRef, x, y, w, h, color);
+    }
+
+    void DrawD3D8RectOutline(void* device8, float x, float y, float w, float h, DWORD color)
+    {
+        if (w <= 1.0f || h <= 1.0f)
+            return;
+        D3D8_DrawSolidQuad(device8, x, y, w, 1.0f, color);
+        D3D8_DrawSolidQuad(device8, x, y + h - 1.0f, w, 1.0f, color);
+        D3D8_DrawSolidQuad(device8, x, y, 1.0f, h, color);
+        D3D8_DrawSolidQuad(device8, x + w - 1.0f, y, 1.0f, h, color);
+    }
+
+    bool RenderIndependentBuffOverlayBarDirectD3D8(void* device8, const std::vector<IndependentBuffOverlayEntry>& providedEntries)
+    {
+        if (!device8 || providedEntries.empty())
+            return false;
+
+        std::vector<IndependentBuffOverlayEntry> entries = providedEntries;
+        IndependentBuffOverlayLayout layout = {};
+        if (!TryBuildIndependentBuffOverlayLayout(entries, &layout))
+            return false;
+        RECT overlayRect = layout.overlayRect;
+
+        bool drewAny = false;
+        for (int index = 0; index < (int)entries.size(); ++index)
+        {
+            const IndependentBuffOverlayEntry& entry = entries[index];
+            RECT slotRect = {};
+            if (!TryGetIndependentBuffOverlaySlotRect(entry, index, layout, &slotRect))
+                continue;
+
+            const float x = (float)slotRect.left;
+            const float y = (float)slotRect.top;
+            const float slotSize = (float)(slotRect.right - slotRect.left);
+            const bool replaceNativeSlot = entry.replaceNativeSlot;
+            D3D8_DrawSolidQuad(device8, x, y, slotSize, slotSize, replaceNativeSlot ? 0xFF000000 : 0x12000000);
+            if (!replaceNativeSlot)
+                DrawD3D8RectOutline(device8, x, y, slotSize, slotSize, 0x2EFFFFFF);
+
+            UITexture* iconTexture = GetRetroSkillSkillIconTexture(g_overlay8.assets, entry.iconSkillId);
+            if (iconTexture && iconTexture->texture)
+            {
+                DrawD3D8UiTexture(device8, iconTexture, x, y, slotSize, slotSize, replaceNativeSlot ? 0xFFFFFFFF : 0xD9FFFFFF);
+            }
+            else
+            {
+                D3D8_DrawSolidQuad(device8, x, y, slotSize, slotSize, replaceNativeSlot ? 0xFF526178 : 0xD9526178);
+            }
+
+            if (entry.totalDurationMs > 0 && entry.remainingMs > 0)
+            {
+                float expiredRatio = 1.0f - ((float)entry.remainingMs / (float)entry.totalDurationMs);
+                if (expiredRatio < 0.0f) expiredRatio = 0.0f;
+                if (expiredRatio > 1.0f) expiredRatio = 1.0f;
+                const float fadeStartY = y + slotSize - floorf(slotSize * expiredRatio);
+                if (fadeStartY < y + slotSize)
+                    D3D8_DrawSolidQuad(device8, x, fadeStartY, slotSize, y + slotSize - fadeStartY, 0x96484848);
+            }
+
+            drewAny = true;
+        }
+
+        static DWORD s_lastDirectBuffLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            nowTick - s_lastDirectBuffLogTick > 1000)
+        {
+            s_lastDirectBuffLogTick = nowTick;
+            WriteLogFmt("[D3D8BuffFastPath] direct count=%d rect=(%d,%d,%d,%d)",
+                (int)entries.size(),
+                overlayRect.left,
+                overlayRect.top,
+                overlayRect.right,
+                overlayRect.bottom);
+        }
+
+        return drewAny;
     }
 
     bool RectHasArea(const RECT& rc)
@@ -1519,6 +1745,94 @@ namespace
 
         if ((!normal || !normal->texture) && hover && hover->texture)
             drawList->AddImage((ImTextureID)hover->texture, minPos, maxPos);
+    }
+
+    bool RenderOverlaySuperButtonDirectD3D8(void* device8)
+    {
+        if (!device8 || !HasSuperButtonRect())
+            return false;
+
+        const float x = (float)g_overlay8.superButtonRect.left;
+        const float y = (float)g_overlay8.superButtonRect.top;
+        const float w = (float)(g_overlay8.superButtonRect.right - g_overlay8.superButtonRect.left);
+        const float h = (float)(g_overlay8.superButtonRect.bottom - g_overlay8.superButtonRect.top);
+        if (w <= 0.0f || h <= 0.0f)
+            return false;
+
+        UITexture* texture = nullptr;
+        if (!g_overlay8.superButtonVisible)
+        {
+            texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.disabled");
+        }
+        else if (g_overlay8.superButtonPressed)
+        {
+            texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.pressed");
+            if (!texture || !texture->texture)
+                texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.mouseOver");
+            if (!texture || !texture->texture)
+                texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.normal");
+        }
+        else
+        {
+            texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.normal");
+            if (!texture || !texture->texture)
+                texture = GetRetroSkillTexture(g_overlay8.assets, "surpe.mouseOver");
+        }
+
+        if (!texture || !texture->texture)
+            return false;
+
+        DrawD3D8UiTexture(device8, texture, x, y, w, h);
+        return true;
+    }
+
+    bool RenderD3D8OverlayFastPath(
+        void* device8,
+        const std::vector<IndependentBuffOverlayEntry>& independentBuffEntries,
+        bool hasIndependentBuffOverlay)
+    {
+        if (!device8)
+            return false;
+        if (!hasIndependentBuffOverlay && !HasSuperButtonRect())
+            return false;
+
+        DWORD* vt = *(DWORD**)device8;
+        auto fnBeginScene = (pfn_D3D8Scene)(void*)vt[D3D8VT::BeginScene];
+        auto fnEndScene = (pfn_D3D8Scene)(void*)vt[D3D8VT::EndScene];
+        if (!fnBeginScene || !fnEndScene)
+            return false;
+
+        HRESULT beginHr = fnBeginScene(device8);
+        if (beginHr < 0)
+            return false;
+
+        D3D8SavedState savedState = {};
+        D3D8_SaveRenderState(device8, savedState);
+        D3D8_SetOverlayRenderState(device8);
+
+        bool drewBuff = false;
+        if (hasIndependentBuffOverlay)
+            drewBuff = RenderIndependentBuffOverlayBarDirectD3D8(device8, independentBuffEntries);
+        const bool drewButton = RenderOverlaySuperButtonDirectD3D8(device8);
+
+        D3D8_RestoreRenderState(device8, savedState);
+        fnEndScene(device8);
+
+        static DWORD s_lastFastPathLogTick = 0;
+        const DWORD nowTick = GetTickCount();
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            nowTick - s_lastFastPathLogTick > 1000)
+        {
+            s_lastFastPathLogTick = nowTick;
+            WriteLogFmt("[D3D8OverlayFastPath] direct panel=0 btn=%d buff=%d count=%d drewBuff=%d drewButton=%d",
+                HasSuperButtonRect() ? 1 : 0,
+                hasIndependentBuffOverlay ? 1 : 0,
+                (int)independentBuffEntries.size(),
+                drewBuff ? 1 : 0,
+                drewButton ? 1 : 0);
+        }
+
+        return drewBuff || drewButton;
     }
 
     void RenderObservedSceneFadeMask()
@@ -2233,6 +2547,15 @@ bool SuperD3D8OverlayHandleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         return false;
     }
 
+    const bool gameForeground = IsGameWindowForeground();
+    if (!gameForeground && IsMouseMessage(msg))
+    {
+        g_overlay8.mouseCapture = false;
+        g_overlay8.mouseHover = false;
+        UpdateCursorSuppression(false);
+        return false;
+    }
+
     ImGui::SetCurrentContext(g_overlay8.context);
     bool handledByImGui = false;
     bool messageInsidePanel = false;
@@ -2336,12 +2659,26 @@ void SuperD3D8OverlayRender(void* device8)
         }
         return;
     }
+    LARGE_INTEGER perfStart = {};
+    LARGE_INTEGER perfAfterEntries = {};
+    LARGE_INTEGER perfAfterFastPath = {};
+    LARGE_INTEGER perfAfterImguiFrame = {};
+    LARGE_INTEGER perfAfterTooltipAndButton = {};
+    LARGE_INTEGER perfAfterPanel = {};
+    LARGE_INTEGER perfAfterCursor = {};
+    LARGE_INTEGER perfAfterSubmit = {};
+    LARGE_INTEGER perfEnd = {};
+    QueryPerformanceCounter(&perfStart);
+
     std::vector<IndependentBuffOverlayEntry> independentBuffEntries;
-    SkillOverlayBridgeGetIndependentBuffOverlayEntries(independentBuffEntries);
+    SkillOverlayBridgeGetIndependentBuffOverlayEntriesLite(independentBuffEntries);
+    QueryPerformanceCounter(&perfAfterEntries);
     const bool hasIndependentBuffOverlay = !independentBuffEntries.empty();
     static DWORD s_lastGateLogTick = 0;
     const DWORD gateNow = GetTickCount();
-    if (hasIndependentBuffOverlay && gateNow - s_lastGateLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        hasIndependentBuffOverlay &&
+        gateNow - s_lastGateLogTick > 1000)
     {
         s_lastGateLogTick = gateNow;
         WriteLogFmt("[IndependentBuffOverlayRenderGate] d3d8 init=%d visible=%d ctx=%d hasEntries=%d btn=%d anchor=(%d,%d)",
@@ -2356,13 +2693,63 @@ void SuperD3D8OverlayRender(void* device8)
     if (!HasSuperButtonRect() && (g_overlay8.anchorX <= -9000 || g_overlay8.anchorY <= -9000) && !hasIndependentBuffOverlay)
         return;
 
-    ImGui::SetCurrentContext(g_overlay8.context);
-    ImGuiIO& io = ImGui::GetIO();
-    io.MouseDrawCursor = false;
     const bool gameForeground = IsGameWindowForeground();
 
     if (g_overlay8.mouseCapture && !AreAnyPhysicalMouseButtonsDown())
         SuperD3D8OverlayCancelMouseCapture();
+
+    POINT mousePt = {};
+    const bool hasMousePt = TryGetCurrentMouseClientPos(&mousePt);
+    const bool overlayMouseActive = gameForeground && hasMousePt;
+    int hoveredBuffSkillId = 0;
+    const bool hoveredIndependentBuff =
+        overlayMouseActive &&
+        hasIndependentBuffOverlay &&
+        TryFindIndependentBuffOverlaySkillIdAtPointInEntries(
+            independentBuffEntries,
+            mousePt.x,
+            mousePt.y,
+            &hoveredBuffSkillId);
+    const bool hoveredSuperButton = overlayMouseActive && IsPointInsideSuperButton(mousePt.x, mousePt.y);
+    const bool wantsPanel =
+        g_overlay8.panelExpanded &&
+        g_overlay8.anchorX > -9000 &&
+        g_overlay8.anchorY > -9000;
+    const bool canUseFastPath =
+        !wantsPanel &&
+        !hoveredIndependentBuff &&
+        !hoveredSuperButton &&
+        !g_overlay8.state.isDraggingSkill &&
+        !g_overlay8.mouseCapture;
+    if (canUseFastPath)
+    {
+        SetSuperButtonHoverState(false);
+        g_overlay8.mouseHover = false;
+        UpdateCursorSuppression(false);
+        const bool fastPathDrew = RenderD3D8OverlayFastPath(device8, independentBuffEntries, hasIndependentBuffOverlay);
+        QueryPerformanceCounter(&perfAfterFastPath);
+        if (fastPathDrew)
+        {
+            static DWORD s_lastFastPerfLogTick = 0;
+            const DWORD fastPerfNow = GetTickCount();
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                fastPerfNow - s_lastFastPerfLogTick > 1000)
+            {
+                s_lastFastPerfLogTick = fastPerfNow;
+                WriteLogFmt("[D3D8OverlayPerf] path=fast total=%.3f entries=%.3f fast=%.3f count=%d btn=%d",
+                    QpcElapsedMs(perfStart, perfAfterFastPath),
+                    QpcElapsedMs(perfStart, perfAfterEntries),
+                    QpcElapsedMs(perfAfterEntries, perfAfterFastPath),
+                    (int)independentBuffEntries.size(),
+                    HasSuperButtonRect() ? 1 : 0);
+            }
+            return;
+        }
+    }
+
+    ImGui::SetCurrentContext(g_overlay8.context);
+    ImGuiIO& io = ImGui::GetIO();
+    io.MouseDrawCursor = false;
 
     ImGui_ImplD3D8_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -2371,17 +2758,10 @@ void SuperD3D8OverlayRender(void* device8)
         io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     }
     ImGui::NewFrame();
+    QueryPerformanceCounter(&perfAfterImguiFrame);
 
-    POINT mousePt = {};
-    const bool hasMousePt = TryGetCurrentMouseClientPos(&mousePt);
     if (!g_overlay8.superButtonPressed)
-        SetSuperButtonHoverState(hasMousePt && IsPointInsideSuperButton(mousePt.x, mousePt.y));
-
-    int hoveredBuffSkillId = 0;
-    const bool hoveredIndependentBuff =
-        hasIndependentBuffOverlay &&
-        hasMousePt &&
-        TryFindIndependentBuffOverlaySkillIdAtPoint(mousePt.x, mousePt.y, &hoveredBuffSkillId);
+        SetSuperButtonHoverState(hoveredSuperButton);
 
     const bool rightButtonDown = ((::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
     if (gameForeground && hoveredIndependentBuff)
@@ -2398,9 +2778,11 @@ void SuperD3D8OverlayRender(void* device8)
     }
     g_independentBuffRightButtonWasDown = rightButtonDown;
 
-    if (hasIndependentBuffOverlay)
-        RenderIndependentBuffOverlayBar(independentBuffEntries);
+    const bool renderIndependentBuffTooltipViaImGui = gameForeground && hasIndependentBuffOverlay && hoveredIndependentBuff;
+    if (renderIndependentBuffTooltipViaImGui)
+        RenderIndependentBuffOverlayTooltipOnly(hoveredBuffSkillId);
     RenderOverlaySuperButton();
+    QueryPerformanceCounter(&perfAfterTooltipAndButton);
 
     if (g_overlay8.panelExpanded && g_overlay8.anchorX > -9000 && g_overlay8.anchorY > -9000)
     {
@@ -2412,12 +2794,13 @@ void SuperD3D8OverlayRender(void* device8)
         UpdateQuickSlotBarState(g_overlay8.state);
         RenderRetroSkillPanel(g_overlay8.state, g_overlay8.assets, nullptr, g_overlay8.mainScale, &g_overlay8.hooks);
     }
+    QueryPerformanceCounter(&perfAfterPanel);
 
     RenderObservedSceneFadeMask();
 
-    g_overlay8.mouseHover = hasMousePt && IsPointInsidePanel(mousePt.x, mousePt.y);
+    g_overlay8.mouseHover = overlayMouseActive && IsPointInsidePanel(mousePt.x, mousePt.y);
     const bool forceOverlayCursorRender =
-        hasMousePt && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseCapture);
+        overlayMouseActive && (g_overlay8.state.isDraggingSkill || g_overlay8.mouseCapture);
     const int observedNativeCursorState = SkillOverlayBridgeGetObservedNativeCursorState();
     const bool overlayCursorHover = g_overlay8.superButtonHover;
     const bool overlayCursorPressed =
@@ -2425,7 +2808,7 @@ void SuperD3D8OverlayRender(void* device8)
         (hoveredIndependentBuff && AreAnyPhysicalMouseButtonsDown());
     RetroSkillCursorOverlayVisual overlayCursorVisual = {};
     const bool hasOverlayCursorVisual =
-        hasMousePt &&
+        overlayMouseActive &&
         TryBuildCurrentOverlayCursorVisual(
             mousePt,
             overlayCursorHover,
@@ -2439,6 +2822,7 @@ void SuperD3D8OverlayRender(void* device8)
     {
         DrawRetroSkillCursorOverlayVisual(overlayCursorVisual);
     }
+    QueryPerformanceCounter(&perfAfterCursor);
 
     if (g_overlay8.panelExpanded && g_overlay8.mainFont)
         ImGui::PopFont();
@@ -2457,11 +2841,55 @@ void SuperD3D8OverlayRender(void* device8)
     if (fnBeginScene && fnEndScene && beginHr >= 0)
     {
         ImGui::Render();
+        if (hasIndependentBuffOverlay)
+        {
+            D3D8SavedState savedState = {};
+            D3D8_SaveRenderState(device8, savedState);
+            D3D8_SetOverlayRenderState(device8);
+            RenderIndependentBuffOverlayBarDirectD3D8(device8, independentBuffEntries);
+            D3D8_RestoreRenderState(device8, savedState);
+
+            static DWORD s_lastHybridBuffLogTick = 0;
+            const DWORD hybridNowTick = GetTickCount();
+            if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+                hybridNowTick - s_lastHybridBuffLogTick > 1000)
+            {
+                s_lastHybridBuffLogTick = hybridNowTick;
+                WriteLogFmt("[D3D8OverlayHybrid] imguiPanel=%d buffDirect=1 count=%d hoverBuff=%d",
+                    wantsPanel ? 1 : 0,
+                    (int)independentBuffEntries.size(),
+                    hoveredIndependentBuff ? 1 : 0);
+            }
+        }
         ImGui_ImplD3D8_RenderDrawData(ImGui::GetDrawData());
+        QueryPerformanceCounter(&perfAfterSubmit);
         fnEndScene(device8);
+        QueryPerformanceCounter(&perfEnd);
+        static DWORD s_lastPerfLogTick = 0;
+        const DWORD perfNow = GetTickCount();
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            perfNow - s_lastPerfLogTick > 1000)
+        {
+            s_lastPerfLogTick = perfNow;
+            WriteLogFmt("[D3D8OverlayPerf] path=imgui total=%.3f entries=%.3f imguiFrame=%.3f tooltipBtn=%.3f panel=%.3f cursor=%.3f submit=%.3f end=%.3f count=%d panelOn=%d hoverBuff=%d drawLists=%d vertices=%d",
+                QpcElapsedMs(perfStart, perfEnd),
+                QpcElapsedMs(perfStart, perfAfterEntries),
+                QpcElapsedMs(perfAfterEntries, perfAfterImguiFrame),
+                QpcElapsedMs(perfAfterImguiFrame, perfAfterTooltipAndButton),
+                QpcElapsedMs(perfAfterTooltipAndButton, perfAfterPanel),
+                QpcElapsedMs(perfAfterPanel, perfAfterCursor),
+                QpcElapsedMs(perfAfterCursor, perfAfterSubmit),
+                QpcElapsedMs(perfAfterSubmit, perfEnd),
+                (int)independentBuffEntries.size(),
+                wantsPanel ? 1 : 0,
+                hoveredIndependentBuff ? 1 : 0,
+                ImGui::GetDrawData() ? ImGui::GetDrawData()->CmdListsCount : 0,
+                ImGui::GetDrawData() ? ImGui::GetDrawData()->TotalVtxCount : 0);
+        }
         static DWORD s_lastRenderOkLogTick = 0;
         const DWORD now = GetTickCount();
-        if (now - s_lastRenderOkLogTick > 1000)
+        if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+            now - s_lastRenderOkLogTick > 1000)
         {
             s_lastRenderOkLogTick = now;
             WriteLogFmt("[D3D8OverlayRender] ok btn=%d anchor=(%d,%d) drawLists=%d vertices=%d",
@@ -2503,6 +2931,8 @@ bool SuperD3D8OverlayWantsMouseCapture()
 bool SuperD3D8OverlayShouldSuppressGameMouse()
 {
     if (!g_overlay8.initialized || !g_overlay8.visible)
+        return false;
+    if (!IsGameWindowForeground())
         return false;
     return g_overlay8.mouseHover || ShouldUseOverlayCursor();
 }

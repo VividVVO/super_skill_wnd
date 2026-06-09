@@ -1,20 +1,6 @@
 static bool TryResolveExtendedMountContextForSoaring(int *mountItemIdOut, bool *fromUserLocalOut)
 {
     int mountItemId = 0;
-    if (TryGetRecentExtendedMountContext(&mountItemId) &&
-        IsExtendedMountSoaringContextMount(mountItemId))
-    {
-        if (mountItemIdOut)
-        {
-            *mountItemIdOut = mountItemId;
-        }
-        if (fromUserLocalOut)
-        {
-            *fromUserLocalOut = false;
-        }
-        return true;
-    }
-
     const char *mountSource = nullptr;
     if (!TryResolveCurrentUserMountItemIdWithFallback(&mountItemId, &mountSource) ||
         !IsExtendedMountSoaringContextMount(mountItemId))
@@ -23,6 +9,19 @@ static bool TryResolveExtendedMountContextForSoaring(int *mountItemIdOut, bool *
     }
 
     const bool fromUserLocal = mountSource && strcmp(mountSource, "user") == 0;
+    if (!fromUserLocal)
+    {
+        static LONG s_rejectFallbackContextLogBudget = 16;
+        if (InterlockedDecrement(&s_rejectFallbackContextLogBudget) >= 0)
+        {
+            WriteLogFmt(
+                "[MountFamilyGate] reject fallback soaring context mount=%d source=%s",
+                mountItemId,
+                mountSource ? mountSource : "unknown");
+        }
+        return false;
+    }
+
     if (fromUserLocal)
     {
         ObserveExtendedMountContext(mountItemId);

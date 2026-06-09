@@ -239,6 +239,7 @@ namespace
 
     static DWORD g_presentationGeneration = 0;        // 全局递增计数器
     static DWORD g_lastConsumedGeneration = 0;        // ABAF70 最后消费的 generation
+    std::map<int, DWORD> g_skillCooldownLastUseTickBySkillId;
     const DWORD kNativeClassifierProxyGraceMs = 80;
     const int kStableMountSpecialMoveProxySkillId = 80001025;
 
@@ -674,6 +675,8 @@ namespace
     LocalPotentialDeltaBuffer g_localIndependentPotentialDisplayDeltaBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialMergedBuffer = {};
     LocalPotentialDeltaBuffer g_localIndependentPotentialDisplayBuffer = {};
+    unsigned long long g_localIndependentPotentialDisplayOffsetMaskLo = 0;
+    unsigned long long g_localIndependentPotentialDisplayOffsetMaskHi = 0;
     std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPotentialBySkillId;
     std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPotentialDisplayBySkillId;
     std::map<int, LocalPotentialDeltaBuffer> g_activeLocalIndependentPassivePotentialBySkillId;
@@ -951,6 +954,7 @@ namespace
     bool FindSuperSkillDefinition(int skillId, SuperSkillDefinition& outDefinition);
     bool FindHiddenSkillDefinition(int skillId, HiddenSkillDefinition& outDefinition);
     bool FindNativeSkillInjectionDefinition(int skillId, NativeSkillInjectionDefinition& outDefinition);
+    bool FindRouteByCustomSkillId(int skillId, CustomSkillUseRoute& outRoute);
     bool IsKnownSuperSkillCarrierSkillId(int skillId);
     void NormalizeVisibleJobIds(std::vector<int>& visibleJobIds);
     bool FindMountedRuntimeSkillDefinitionByMountItemId(
@@ -1006,6 +1010,7 @@ namespace
     void RebuildIndependentBuffObservedSkillCandidateMap();
     void LoadNativeSkillInjectionRegistry();
     void ClearNativeSkillInjectionRegistry();
+    void RefreshSkillItemCooldownFromLocalData(SkillItem& item);
     uintptr_t GameLookupSkillEntryPointer(int skillId);
     void ApplyConfiguredPassiveBonusTooltipAugments(RetroSkillRuntimeState& state);
 
@@ -1851,6 +1856,7 @@ namespace
                     item.level = newLevel;
                 }
 
+                RefreshSkillItemCooldownFromLocalData(item);
                 RefreshSkillNativeState(item);
             }
         }
@@ -2889,6 +2895,151 @@ namespace
         default:
             return false;
         }
+    }
+
+    int ClampCooldownMs(long long valueMs)
+    {
+        if (valueMs <= 0)
+            return 0;
+        if (valueMs > 0x7fffffffLL)
+            return 0x7fffffff;
+        return static_cast<int>(valueMs);
+    }
+
+    bool TryResolveSkillCooldownMs(int skillId, int level, int& outCooldownMs)
+    {
+        outCooldownMs = 0;
+        if (skillId <= 0)
+            return false;
+        if (level <= 0)
+            level = 1;
+
+        int value = 0;
+        const char* millisecondKeys[] = {
+            "cooldownMs",
+            "coolTimeMs",
+            "cooltimeMs",
+            "cooldownMillis"
+        };
+        for (size_t i = 0; i < sizeof(millisecondKeys) / sizeof(millisecondKeys[0]); ++i)
+        {
+            if (SkillLocalDataGetLevelValueInt(skillId, level, millisecondKeys[i], value) && value > 0)
+            {
+                outCooldownMs = ClampCooldownMs(value);
+                return outCooldownMs > 0;
+            }
+        }
+
+        const char* secondKeys[] = {
+            "cooltime",
+            "coolTime",
+            "cooldown",
+            "cool"
+        };
+        for (size_t i = 0; i < sizeof(secondKeys) / sizeof(secondKeys[0]); ++i)
+        {
+            if (SkillLocalDataGetLevelValueInt(skillId, level, secondKeys[i], value) && value > 0)
+            {
+                outCooldownMs = ClampCooldownMs(static_cast<long long>(value) * 1000LL);
+                return outCooldownMs > 0;
+            }
+        }
+
+        return false;
+    }
+
+    void RefreshSkillItemCooldownFromLocalData(SkillItem& item)
+    {
+        int cooldownMs = 0;
+        if (TryResolveSkillCooldownMs(item.skillID, item.level > 0 ? item.level : 1, cooldownMs))
+            item.cooldown = cooldownMs;
+        else
+            item.cooldown = 0;
+
+        std::map<int, DWORD>::const_iterator it =
+            g_skillCooldownLastUseTickBySkillId.find(item.skillID);
+        item.lastUseTime =
+            (item.cooldown > 0 && it != g_skillCooldownLastUseTickBySkillId.end())
+                ? it->second
+                : 0;
+    }
+
+    int GetSkillCooldownRemainingMs(const SkillItem& item)
+    {
+        if (item.cooldown <= 0 || item.lastUseTime == 0)
+            return 0;
+
+        const DWORD elapsed = GetTickCount() - item.lastUseTime;
+        if (elapsed >= static_cast<DWORD>(item.cooldown))
+            return 0;
+        return item.cooldown - static_cast<int>(elapsed);
+    }
+
+    void RecordSkillCooldownUse(SkillItem& item)
+    {
+        const DWORD nowTick = GetTickCount();
+        item.lastUseTime = nowTick;
+        if (item.cooldown > 0)
+            g_skillCooldownLastUseTickBySkillId[item.skillID] = nowTick;
+        else
+            g_skillCooldownLastUseTickBySkillId.erase(item.skillID);
+    }
+
+    bool IsNativeReleaseCooldownGateActiveForCurrentChain(int skillId)
+    {
+        if (skillId <= 0 || !IsActiveNativeReleaseContextFresh())
+            return false;
+        if (g_activeNativeRelease.customSkillId != skillId)
+            return false;
+        if (g_activeNativeRelease.firstRewriteTick != 0)
+            return false;
+
+        const DWORD nowTick = GetTickCount();
+        return nowTick - g_activeNativeRelease.armedTick <= 250;
+    }
+
+    bool TryGetSkillCooldownRemainingForSkillId(
+        int skillId,
+        int level,
+        int& outRemainingMs,
+        int& outCooldownMs)
+    {
+        outRemainingMs = 0;
+        outCooldownMs = 0;
+
+        int cooldownMs = 0;
+        if (!TryResolveSkillCooldownMs(skillId, level > 0 ? level : 1, cooldownMs) ||
+            cooldownMs <= 0)
+        {
+            return false;
+        }
+        outCooldownMs = cooldownMs;
+
+        std::map<int, DWORD>::iterator it =
+            g_skillCooldownLastUseTickBySkillId.find(skillId);
+        if (it == g_skillCooldownLastUseTickBySkillId.end() || it->second == 0)
+            return false;
+
+        const DWORD elapsed = GetTickCount() - it->second;
+        if (elapsed >= static_cast<DWORD>(cooldownMs))
+        {
+            g_skillCooldownLastUseTickBySkillId.erase(it);
+            return false;
+        }
+
+        outRemainingMs = cooldownMs - static_cast<int>(elapsed);
+        return true;
+    }
+
+    bool ShouldClearIndependentBuffVirtualStateOnManualUse(const SuperSkillDefinition& definition)
+    {
+        if (definition.skillId <= 0)
+            return false;
+
+        return definition.mountItemId > 0 ||
+            definition.mountTamingMobId > 0 ||
+            definition.mountedDoubleJumpEnabled ||
+            definition.mountedDemonJumpEnabled;
     }
 
     std::string ResolveSkillNameForTooltip(int skillId)
@@ -5395,6 +5546,168 @@ namespace
         return (packetValue & value) == value;
     }
 
+    const int kBuffPacketProbeHexBytes = 160;
+
+    unsigned int ComputeBuffPacketProbeHash(const BYTE* payload, int payloadLen)
+    {
+        if (!payload || payloadLen <= 0)
+            return 0;
+
+        unsigned int hash = 2166136261u;
+        for (int i = 0; i < payloadLen; ++i)
+        {
+            hash ^= static_cast<unsigned int>(payload[i]);
+            hash *= 16777619u;
+        }
+        return hash;
+    }
+
+    std::string FormatPacketBytesHex(const BYTE* payload, int payloadLen, int maxBytes)
+    {
+        if (!payload || payloadLen <= 0 || maxBytes <= 0)
+            return "";
+
+        const int count = (std::min)(payloadLen, maxBytes);
+        std::string out;
+        out.reserve(static_cast<size_t>(count) * 3u + 4u);
+        for (int i = 0; i < count; ++i)
+        {
+            char part[4] = {};
+            std::snprintf(part, sizeof(part), "%02X", static_cast<unsigned int>(payload[i]));
+            if (!out.empty())
+                out.push_back(' ');
+            out += part;
+        }
+        if (payloadLen > count)
+            out += " ...";
+        return out;
+    }
+
+    std::string FormatBuffMaskSummary(const BYTE* payload, int payloadLen)
+    {
+        if (!payload || payloadLen < kBuffMaskByteCount)
+            return "short";
+
+        std::string out;
+        out.reserve(120);
+        for (int position = 1; position <= kBuffMaskIntCount; ++position)
+        {
+            const int offset = GetBuffMaskPacketOffsetForPosition(position);
+            const unsigned int value =
+                offset >= 0 && payloadLen >= offset + static_cast<int>(sizeof(int))
+                    ? static_cast<unsigned int>(ReadPacketInt(payload, offset))
+                    : 0u;
+            char part[32] = {};
+            std::snprintf(part, sizeof(part), "p%d=0x%08X", position, value);
+            if (!out.empty())
+                out.push_back(' ');
+            out += part;
+        }
+        return out;
+    }
+
+    std::string FormatBuffMaskNameSummary(const BYTE* payload, int payloadLen)
+    {
+        if (!payload || payloadLen < kBuffMaskByteCount)
+            return "short";
+
+        std::string out;
+        for (size_t i = 0; i < ARRAYSIZE(kNativeBuffMaskDefinitions); ++i)
+        {
+            const NativeBuffMaskDefinition& definition = kNativeBuffMaskDefinitions[i];
+            if (!definition.name || !definition.name[0])
+                continue;
+            if (!PacketMaskHasValue(payload, payloadLen, definition.position, definition.value))
+                continue;
+            if (!out.empty())
+                out.push_back('|');
+            out += definition.name;
+        }
+        return out.empty() ? "-" : out;
+    }
+
+    struct BuffPacketProbeSnapshot
+    {
+        int payloadLen = 0;
+        int displayValue = -1;
+        int packetSkillId = 0;
+        int durationMs = 0;
+        int mountItemId = 0;
+        int mountSkillId = 0;
+        unsigned int hash = 0;
+        std::string masks;
+        std::string names;
+        std::string headHex;
+    };
+
+    BuffPacketProbeSnapshot CaptureBuffPacketProbeSnapshot(const BYTE* payload, int payloadLen)
+    {
+        BuffPacketProbeSnapshot snapshot;
+        snapshot.payloadLen = payloadLen;
+        snapshot.hash = ComputeBuffPacketProbeHash(payload, payloadLen);
+        snapshot.masks = FormatBuffMaskSummary(payload, payloadLen);
+        snapshot.names = FormatBuffMaskNameSummary(payload, payloadLen);
+        snapshot.headHex = FormatPacketBytesHex(payload, payloadLen, kBuffPacketProbeHexBytes);
+
+        if (payload && payloadLen >= kBuffMaskByteCount + static_cast<int>(sizeof(unsigned short)))
+            snapshot.displayValue = static_cast<int>(ReadPacketShort(payload, kBuffMaskByteCount));
+        if (payload && payloadLen >= kSingleStatGiveBuffSkillIdOffset + static_cast<int>(sizeof(int)))
+            snapshot.packetSkillId = ReadPacketInt(payload, kSingleStatGiveBuffSkillIdOffset);
+        if (payload && payloadLen >= kSingleStatGiveBuffDurationOffset + static_cast<int>(sizeof(int)))
+            snapshot.durationMs = ReadPacketInt(payload, kSingleStatGiveBuffDurationOffset);
+        if (payload &&
+            PacketMaskHasValue(payload, payloadLen, 8, 0x08000000u) &&
+            payloadLen >= kMountGiveBuffSkillIdOffset + static_cast<int>(sizeof(int)))
+        {
+            snapshot.mountItemId = ReadPacketInt(payload, kMountGiveBuffItemIdOffset);
+            snapshot.mountSkillId = ReadPacketInt(payload, kMountGiveBuffSkillIdOffset);
+        }
+        return snapshot;
+    }
+
+    bool BuffPacketProbeSnapshotChanged(
+        const BuffPacketProbeSnapshot& before,
+        const BuffPacketProbeSnapshot& after)
+    {
+        return before.payloadLen != after.payloadLen ||
+               before.displayValue != after.displayValue ||
+               before.packetSkillId != after.packetSkillId ||
+               before.durationMs != after.durationMs ||
+               before.mountItemId != after.mountItemId ||
+               before.mountSkillId != after.mountSkillId ||
+               before.hash != after.hash ||
+               before.masks != after.masks ||
+               before.headHex != after.headHex;
+    }
+
+    void LogBuffPacketProbe(
+        const char* stage,
+        int opcode,
+        const BYTE* payload,
+        int payloadLen,
+        uintptr_t callerRetAddr,
+        const BuffPacketProbeSnapshot* before)
+    {
+        const BuffPacketProbeSnapshot snapshot = CaptureBuffPacketProbeSnapshot(payload, payloadLen);
+        const int changed = before ? (BuffPacketProbeSnapshotChanged(*before, snapshot) ? 1 : 0) : -1;
+        WriteLogFmt("[BuffPacketProbe] %s opcode=0x%X len=%d changed=%d hash=0x%08X value=%d skillId=%d durationMs=%d mountItem=%d mountSkill=%d masks=[%s] names=[%s] head%d=[%s] caller=0x%08X",
+            stage ? stage : "?",
+            opcode,
+            snapshot.payloadLen,
+            changed,
+            snapshot.hash,
+            snapshot.displayValue,
+            snapshot.packetSkillId,
+            snapshot.durationMs,
+            snapshot.mountItemId,
+            snapshot.mountSkillId,
+            snapshot.masks.c_str(),
+            snapshot.names.c_str(),
+            kBuffPacketProbeHexBytes,
+            snapshot.headHex.c_str(),
+            (DWORD)(uintptr_t)callerRetAddr);
+    }
+
     bool IsMonsterRidingGiveBuffPayload(const BYTE* payload, int payloadLen)
     {
         return PacketMaskHasValue(payload, payloadLen, 8, 0x08000000u) &&
@@ -5908,6 +6221,8 @@ namespace
         g_localIndependentPotentialDisplayDeltaBuffer.fill(0);
         g_localIndependentPotentialMergedBuffer.fill(0);
         g_localIndependentPotentialDisplayBuffer.fill(0);
+        g_localIndependentPotentialDisplayOffsetMaskLo = 0;
+        g_localIndependentPotentialDisplayOffsetMaskHi = 0;
         g_observedNativeVisibleBuffVisualCount = -1;
         g_observedNativeVisibleBuffAnchorX = -1;
         g_independentBuffOverlayStates.clear();
@@ -6096,6 +6411,59 @@ namespace
         buffer.fill(0);
     }
 
+    bool TryGetLocalPotentialBufferIndexForOffset(int offset, size_t& index)
+    {
+        index = 0;
+        if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
+            return false;
+
+        index = static_cast<size_t>(offset / static_cast<int>(sizeof(int)));
+        return index < kLocalIndependentPotentialBufferIntCount;
+    }
+
+    void ClearLocalIndependentPotentialDisplayDeltaMask()
+    {
+        g_localIndependentPotentialDisplayOffsetMaskLo = 0;
+        g_localIndependentPotentialDisplayOffsetMaskHi = 0;
+    }
+
+    void RebuildLocalIndependentPotentialDisplayDeltaMask()
+    {
+        ClearLocalIndependentPotentialDisplayDeltaMask();
+
+        for (size_t index = 0; index < g_localIndependentPotentialDisplayDeltaBuffer.size(); ++index)
+        {
+            if (g_localIndependentPotentialDisplayDeltaBuffer[index] == 0)
+                continue;
+            if (index < 64)
+                g_localIndependentPotentialDisplayOffsetMaskLo |= (1ull << index);
+            else
+                g_localIndependentPotentialDisplayOffsetMaskHi |= (1ull << (index - 64));
+        }
+    }
+
+    bool HasLocalIndependentPotentialDisplayDeltaMaskForOffset(int offset)
+    {
+        size_t index = 0;
+        if (!TryGetLocalPotentialBufferIndexForOffset(offset, index))
+            return false;
+        if (index < 64)
+            return (g_localIndependentPotentialDisplayOffsetMaskLo & (1ull << index)) != 0;
+        return (g_localIndependentPotentialDisplayOffsetMaskHi & (1ull << (index - 64))) != 0;
+    }
+
+    bool HasAnyLocalIndependentPotentialDisplayDeltaMaskForOffsets(const int* offsets, int count)
+    {
+        if (!offsets || count <= 0)
+            return false;
+        for (int i = 0; i < count; ++i)
+        {
+            if (HasLocalIndependentPotentialDisplayDeltaMaskForOffset(offsets[i]))
+                return true;
+        }
+        return false;
+    }
+
     bool AddLocalPotentialDeltaValue(LocalPotentialDeltaBuffer& buffer, int offset, int value)
     {
         if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
@@ -6264,6 +6632,8 @@ namespace
                 g_localIndependentPotentialDisplayDeltaBuffer[index] += values[index];
             }
         }
+
+        RebuildLocalIndependentPotentialDisplayDeltaMask();
     }
 
     void UpdateLocalIndependentPotentialStateForDefinition(const SuperSkillDefinition& definition, bool active)
@@ -9343,14 +9713,16 @@ namespace
             item.allowNativeUpgradeFallback = isSuperSkill && superDefinition.allowNativeUpgradeFallback;
             item.superSpCost = isSuperSkill ? superDefinition.superSpCost : 0;
             item.superSpCarrierSkillId = isSuperSkill ? superDefinition.superSpCarrierSkillId : 0;
+            RefreshSkillItemCooldownFromLocalData(item);
             RefreshSkillNativeState(item);
 
-            WriteLogFmt("[SkillBridge] populate skillId=%d level=%d/%d (game=%d/%d local=%d passive=%d super=%d cost=%d carrier=%d upgradeState=%d blocked=%d native=%d)",
+            WriteLogFmt("[SkillBridge] populate skillId=%d level=%d/%d (game=%d/%d local=%d passive=%d super=%d cost=%d carrier=%d cooldownMs=%d upgradeState=%d blocked=%d native=%d)",
                 skillId, level, maxLevel, gameLevel, gameMaxLevel, localMaxLevel,
                 item.isPassive ? 1 : 0,
                 item.isSuperSkill ? 1 : 0,
                 item.superSpCost,
                 item.superSpCarrierSkillId,
+                item.cooldown,
                 item.upgradeState,
                 item.upgradeBlocked ? 1 : 0,
                 item.hasNativeUpgradeState ? 1 : 0);
@@ -9627,6 +9999,12 @@ namespace
             ssw::skillpack::TryReadSkillConfigTextFile(widePath, out))
         {
             return true;
+        }
+        if (!widePath.empty() &&
+            ssw::skillpack::IsSkillConfigPackagePhysicalFallbackBlocked(widePath))
+        {
+            WriteLogFmt("[SkillBridge] blocked plain config fallback path=%s", path);
+            return false;
         }
 
         FILE* f = nullptr;
@@ -9961,7 +10339,8 @@ void SkillOverlayBridgeGetObservedNativeVisibleSemanticSlots(std::vector<int>& o
 
     static DWORD s_lastSemanticSlotLogTick = 0;
     const DWORD nowTick = GetTickCount();
-    if (nowTick - s_lastSemanticSlotLogTick > 1000)
+    if (EnableIndependentBuffOverlayDiagnosticLogs() &&
+        nowTick - s_lastSemanticSlotLogTick > 1000)
     {
         s_lastSemanticSlotLogTick = nowTick;
         std::string skillOrders;
@@ -10582,7 +10961,9 @@ void SkillOverlayBridgeFilterNativeSkillWindow(uintptr_t skillWndThis)
     // Diagnostic: log all skill IDs found in entries (throttled)
     static DWORD s_lastDiagTick = 0;
     const DWORD diagNow = GetTickCount();
-    const bool doDiag = (diagNow - s_lastDiagTick > 5000);
+    const bool doDiag =
+        EnableUiObservationDiagnosticLogs() &&
+        (diagNow - s_lastDiagTick > 5000);
     if (doDiag)
     {
         s_lastDiagTick = diagNow;
@@ -10873,15 +11254,40 @@ int SkillOverlayBridgeGetLocalIndependentPotentialDeltaValue(int offset)
 
 int SkillOverlayBridgeGetLocalIndependentPotentialDisplayDeltaValue(int offset)
 {
-    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
-    if (offset < 0 || offset + static_cast<int>(sizeof(int)) > kLocalIndependentPotentialBufferBytes)
+    if (!HasLocalIndependentPotentialDisplayDeltaMaskForOffset(offset))
         return 0;
 
-    const size_t index = static_cast<size_t>(offset / static_cast<int>(sizeof(int)));
-    if (index >= g_localIndependentPotentialDisplayDeltaBuffer.size())
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
+    if (!HasLocalIndependentPotentialDisplayDeltaMaskForOffset(offset))
+        return 0;
+
+    size_t index = 0;
+    if (!TryGetLocalPotentialBufferIndexForOffset(offset, index))
         return 0;
 
     return g_localIndependentPotentialDisplayDeltaBuffer[index];
+}
+
+bool SkillOverlayBridgeHasLocalIndependentPotentialDisplayDeltaValue(int offset)
+{
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
+    if (!HasLocalIndependentPotentialDisplayDeltaMaskForOffset(offset))
+        return false;
+
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
+    return HasLocalIndependentPotentialDisplayDeltaMaskForOffset(offset);
+}
+
+bool SkillOverlayBridgeHasAnyLocalIndependentPotentialDisplayDeltaValue(const int* offsets, int count)
+{
+    if (!IsSuperSkillRuntimeEnabled())
+        return false;
+    if (!HasAnyLocalIndependentPotentialDisplayDeltaMaskForOffsets(offsets, count))
+        return false;
+
+    RefreshIndependentBuffRuntimeOwnerBindingForQuery();
+    return HasAnyLocalIndependentPotentialDisplayDeltaMaskForOffsets(offsets, count);
 }
 
 bool SkillOverlayBridgeHasLocalIndependentPotentialBonuses()
@@ -10896,8 +11302,11 @@ bool SkillOverlayBridgeHasLocalIndependentPotentialDisplayBonuses()
 {
     if (!IsSuperSkillRuntimeEnabled())
         return false;
+    if (!g_localIndependentPotentialDisplayOffsetMaskLo && !g_localIndependentPotentialDisplayOffsetMaskHi)
+        return false;
+
     RefreshIndependentBuffRuntimeOwnerBindingForQuery();
-    return !g_activeLocalIndependentPotentialDisplayBySkillId.empty();
+    return g_localIndependentPotentialDisplayOffsetMaskLo || g_localIndependentPotentialDisplayOffsetMaskHi;
 }
 
 bool SkillOverlayBridgeNeedsLocalIndependentPotentialHooks()
@@ -11101,7 +11510,9 @@ namespace
     }
 }
 
-void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentBuffOverlayEntry>& outEntries)
+static void SkillOverlayBridgeGetIndependentBuffOverlayEntriesInternal(
+    std::vector<IndependentBuffOverlayEntry>& outEntries,
+    bool includeMetadata)
 {
     RefreshIndependentBuffRuntimeOwnerBindingForQuery();
     outEntries.clear();
@@ -11116,8 +11527,11 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
         unsigned long long activationOrder = 0;
     };
     std::vector<OrderedOverlayEntry> orderedEntries;
-    auto populateEntryMetadata = [](IndependentBuffOverlayEntry& entry)
+    auto populateEntryMetadata = [includeMetadata](IndependentBuffOverlayEntry& entry)
     {
+        if (!includeMetadata)
+            return;
+
         std::string name;
         if (SkillLocalDataGetName(entry.skillId, name) && !name.empty())
             entry.name = name;
@@ -11311,6 +11725,16 @@ void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentB
         entry.slotIndex = (int)i;
         outEntries.push_back(entry);
     }
+}
+
+void SkillOverlayBridgeGetIndependentBuffOverlayEntries(std::vector<IndependentBuffOverlayEntry>& outEntries)
+{
+    SkillOverlayBridgeGetIndependentBuffOverlayEntriesInternal(outEntries, true);
+}
+
+void SkillOverlayBridgeGetIndependentBuffOverlayEntriesLite(std::vector<IndependentBuffOverlayEntry>& outEntries)
+{
+    SkillOverlayBridgeGetIndependentBuffOverlayEntriesInternal(outEntries, false);
 }
 
 bool SkillOverlayBridgeCancelIndependentBuff(int skillId)
@@ -13552,13 +13976,24 @@ void SkillOverlayBridgeInspectOutgoingPacket(void* packetData, int packetLen, ui
             if (activationIt != g_recentIndependentBuffActivationTickBySkillId.end())
                 activationTick = activationIt->second;
 
-            if (!recentClientCancel &&
+            DWORD useTick = 0;
+            std::map<int, DWORD>::iterator useIt = g_recentIndependentBuffClientUseTickBySkillId.find(state.skillId);
+            if (useIt != g_recentIndependentBuffClientUseTickBySkillId.end())
+                useTick = useIt->second;
+
+            const bool recentActivation =
                 activationTick != 0 &&
-                now - activationTick <= kIndependentBuffRefreshCancelIgnoreMs)
+                now - activationTick <= kIndependentBuffRefreshCancelIgnoreMs;
+            const bool recentManualUse =
+                useTick != 0 &&
+                now - useTick <= kIndependentBuffRefreshCancelIgnoreMs;
+
+            if (!recentClientCancel && (recentActivation || recentManualUse))
             {
-                WriteLogFmt("[IndependentBuffClient] ignore refresh-cancel skillId=%d delta=%u carrier=(%d,0x%08X) caller=0x%08X",
+                WriteLogFmt("[IndependentBuffClient] ignore refresh-cancel skillId=%d activationDelta=%u useDelta=%u carrier=(%d,0x%08X) caller=0x%08X",
                     state.skillId,
-                    (unsigned int)(now - activationTick),
+                    activationTick != 0 ? (unsigned int)(now - activationTick) : 0xFFFFFFFFu,
+                    useTick != 0 ? (unsigned int)(now - useTick) : 0xFFFFFFFFu,
                     state.carrierMaskPosition,
                     state.carrierMaskValue,
                     (DWORD)(uintptr_t)callerRetAddr);
@@ -13660,6 +14095,13 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
         int payloadLen = 0;
         if (TryReadIncomingPacketPayload(inPacket, payload, payloadLen))
         {
+            const bool probeLogs = EnableBuffPacketProbeLogs();
+            BuffPacketProbeSnapshot beforeProbe;
+            if (probeLogs)
+            {
+                beforeProbe = CaptureBuffPacketProbeSnapshot(payload, payloadLen);
+                LogBuffPacketProbe("pre", opcode, payload, payloadLen, callerRetAddr, nullptr);
+            }
             if (opcode == (int)kGiveBuffPacketOpcode)
             {
                 TryRewriteIndependentBuffGivePacket(payload, payloadLen, callerRetAddr);
@@ -13671,6 +14113,15 @@ void SkillOverlayBridgeInspectIncomingPacket(void* inPacket, int opcode, uintptr
                 TryRewriteIndependentBuffCancelPacket(payload, payloadLen, callerRetAddr);
                 RemoveNativeVisibleBuffStatesFromPayload(payload, payloadLen);
             }
+            if (probeLogs)
+                LogBuffPacketProbe("post", opcode, payload, payloadLen, callerRetAddr, &beforeProbe);
+        }
+        else
+        {
+            WriteLogFmt("[BuffPacketProbe] read FAIL opcode=0x%X inPacket=0x%08X caller=0x%08X",
+                opcode,
+                (DWORD)(uintptr_t)inPacket,
+                (DWORD)(uintptr_t)callerRetAddr);
         }
     }
 
@@ -13921,9 +14372,13 @@ bool SkillOverlayBridgeUseSkill(int skillId)
                     WriteLogFmt("[SkillBridge] use BLOCKED skillId=%d (passive)", skillId);
                     return false;
                 }
+                RefreshSkillItemCooldownFromLocalData(skill);
                 if (skill.IsOnCooldown())
                 {
-                    WriteLogFmt("[SkillBridge] use BLOCKED skillId=%d (cooldown)", skillId);
+                    WriteLogFmt("[SkillBridge] use BLOCKED skillId=%d (cooldown remainingMs=%d totalMs=%d)",
+                        skillId,
+                        GetSkillCooldownRemainingMs(skill),
+                        skill.cooldown);
                     return false;
                 }
                 if (SkillOverlayBridgeIsEchoOfHeroSkillId(skillId))
@@ -13932,12 +14387,19 @@ bool SkillOverlayBridgeUseSkill(int skillId)
                     return false;
                 }
 
-                g_recentIndependentBuffClientUseTickBySkillId[skillId] = GetTickCount();
-                g_recentIndependentBuffClientCancelTickBySkillId.erase(skillId);
-                ClearIndependentBuffVirtualState(skillId);
-
                 SuperSkillDefinition observedDefinition = {};
-                if (FindSuperSkillDefinition(skillId, observedDefinition) &&
+                const bool hasObservedDefinition =
+                    FindSuperSkillDefinition(skillId, observedDefinition);
+                const bool isIndependentBuffUse =
+                    hasObservedDefinition && observedDefinition.independentBuffEnabled;
+                if (isIndependentBuffUse)
+                {
+                    g_recentIndependentBuffClientUseTickBySkillId[skillId] = GetTickCount();
+                    g_recentIndependentBuffClientCancelTickBySkillId.erase(skillId);
+                    if (ShouldClearIndependentBuffVirtualStateOnManualUse(observedDefinition))
+                        ClearIndependentBuffVirtualState(skillId);
+                }
+                if (hasObservedDefinition &&
                     DefinitionParticipatesInMountMovementSelection(observedDefinition) &&
                     observedDefinition.mountItemId > 0)
                 {
@@ -13956,7 +14418,7 @@ bool SkillOverlayBridgeUseSkill(int skillId)
                     return false;
                 }
 
-                skill.Use();
+                RecordSkillCooldownUse(skill);
                 WriteLogFmt("[SkillBridge] use skillId=%d level=%d tab=%d release=OK", skillId, skill.level, t);
                 return true;
             }
@@ -13965,6 +14427,44 @@ bool SkillOverlayBridgeUseSkill(int skillId)
 
     WriteLogFmt("[SkillBridge] use FAILED skillId=%d (not found)", skillId);
     return false;
+}
+
+bool SkillOverlayBridgeTryEnterNativeReleaseCooldown(int skillId)
+{
+    if (skillId <= 0)
+        return true;
+    if (!IsSuperSkillRuntimeEnabled())
+        return true;
+
+    CustomSkillUseRoute route = {};
+    if (!FindRouteByCustomSkillId(skillId, route))
+        return true;
+    if (!RouteUsesNativeReleaseClass(route))
+        return true;
+
+    if (IsNativeReleaseCooldownGateActiveForCurrentChain(skillId))
+        return true;
+
+    int remainingMs = 0;
+    int cooldownMs = 0;
+    if (TryGetSkillCooldownRemainingForSkillId(skillId, 1, remainingMs, cooldownMs))
+    {
+        WriteLogFmt("[SkillReleaseHook] B2F370 cooldown BLOCKED skillId=%d remainingMs=%d totalMs=%d",
+            skillId,
+            remainingMs,
+            cooldownMs);
+        return false;
+    }
+
+    if (TryResolveSkillCooldownMs(skillId, 1, cooldownMs) && cooldownMs > 0)
+    {
+        g_skillCooldownLastUseTickBySkillId[skillId] = GetTickCount();
+        WriteLogFmt("[SkillReleaseHook] B2F370 cooldown ARM skillId=%d totalMs=%d",
+            skillId,
+            cooldownMs);
+    }
+
+    return true;
 }
 
 // ============================================================================

@@ -31,6 +31,7 @@ bool TryReadSkillConfigTextFile(const std::wstring& absolutePath, std::string& o
 bool TryEnumerateSkillConfigPackageEntries(const std::wstring& skillConfigDir, std::vector<SkillConfigPackageEntryInfo>& outEntries);
 void InvalidateSkillConfigPackage();
 bool DoesSkillConfigPackageExist(const std::wstring& skillConfigDir);
+bool IsSkillConfigPackagePhysicalFallbackBlocked(const std::wstring& absolutePath);
 bool QuerySkillConfigRuntimePasswordProbe(const std::wstring& skillConfigDir, SkillConfigRuntimePasswordProbe& outProbe);
 bool IsSkillConfigPackageRuntimePasswordPending(const std::wstring& skillConfigDir);
 
